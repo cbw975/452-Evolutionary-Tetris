@@ -128,8 +128,8 @@
 
 ; Updates world at each time step; called by user interface layer for each game time step.
 (defn step-forward [{:keys [frame filled speed] :as state}]
-  (cond->
-    (update state :frame inc)                         ; conditional threading at the new game step
+  (cond->                                                   ; conditional threading at the new game step
+    (update state :frame inc)
     (zero? (mod frame (max speed 1)))                       ; if the frame modded with the current speed is zero
     fall                                                    ; the shape falls.
     (some zero? (map second filled))                        ; if some of the y coord of any filled block is zero
