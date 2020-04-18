@@ -36,7 +36,8 @@
 (defn start-state []
   {:score        0                                          ; score of game. starts at 0
    :filled       #{}                                        ; set of coordinates of filled cells in world
-   :frame        0
+   :time-limit   100                                        ; number of frames before block will fall down 1
+   :FPS          0
    :active-pos   [(rand-int (- world-width 3)) 0]           ; top-left coord of active tetris shape. randomly somewhere along the top row of world
    :active-shape ((rand-nth (keys shapes)) shapes)})        ; shape is the current falling/active block
 
@@ -96,7 +97,7 @@
   (if (every? filled (for [i (range world-width)] [i row])) ; if every cell is filled in a row, clear the row
     (-> state
         (update :score + 10)                                          ; 10 points for every cleared row
-        (update :speed dec)                                 ; speed of blocks
+        (update :time-limit dec)                                 ; speed of blocks
         (assoc :filled                                      ; the blocks in the row are no longer filled
                (set (for [[i j] filled :when (not= j row)]  ; transfer/keep all the filled cells that were not in the cleared-row
                       (if (< j row) [i (inc j)] [i j])))))  ; shift down all the rows above cleared-row
@@ -127,10 +128,10 @@
   )
 
 ; Updates world at each time step; called by user interface layer for each game time step.
-(defn step-forward [{:keys [frame filled speed] :as state}]
+(defn step-forward [{:keys [FPS filled time-limit] :as state}]
   (cond->                                                   ; conditional threading at the new game step
-    (update state :frame inc)
-    (zero? (mod frame (max speed 1)))                       ; if the frame modded with the current speed is zero
+    (update state :FPS inc)
+    (zero? (mod FPS (max time-limit 1)))                           ; if the Frames per Second (GUI code) modded with the current FPS is zero
     fall                                                    ; the shape falls.
     (some zero? (map second filled))                        ; if some of the y coord of any filled block is zero
     ((game-over state)
