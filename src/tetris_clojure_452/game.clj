@@ -1,4 +1,4 @@
-(ns tetris-clojure-452.core)
+(ns tetris-clojure-452.game)
 
 ; For storing game state + string based display to repl
 (def empty-block 0)

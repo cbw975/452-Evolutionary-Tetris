@@ -70,18 +70,17 @@
         (max -10 (- gene (+ (rand mutation-range) (/ mutation-range 2))))
         (min 10 (+ gene (+ (rand mutation-range) (/ mutation-range 2))))))))
 
-; TODO: Modify the inputs of this to be what game code needs --> individual's genome instead of individual?
-;       --> TODO: choose-move function to decide a move during gameplay (called by game code) based on genome (unchanging while individual is playing a game, possibly mutated after a generation)
-;TODO: falling-blocks generator function to generate a random sequence of blocks that will fall for the individuals of a given generation (so block seqs are different for each generation, but the same for individuals in a generation)         
-(defn play-and-update [individual]
+;TODO: in game code: choose-move function to decide a move during gameplay (called by game code) based on genome (unchanging while individual is playing a game, possibly mutated after a generation)
+(defn play-and-update [individual seed]
   "updates an indiviudal's state and score after it plays a game of tetris"
-  (let [new-individual individual                           ; individual with updated/replaced state and score
-        end-game (play-game individual (:seed individual))   ; output of gameplay
-        new-score (first end-game)
-        new-state (second end-game)]                        ; TODO: CHECK: reverse order of outputs if necessary
-    (assoc new-individual :state new-state :score new-score))) ; return individual with newly associated values after gameplay
+  (let [new-seed seed
+        new-individual (assoc individual :seed new-seed)    ; for the game code, only the seed and genome are used. The state and score will be updated at the end of the game
+        game-output (play-game individual)                  ; output of gameplay
+        game-score (first game-output)                      ; TODO: MAKE SURE PROPERLY GETS THE gameover-state and gameover-score
+        game-state (second game-output)]
+    (assoc new-individual :state game-state :score game-score))) ; return individual with newly associated values (state and score) after gameplay
 
-(defn make-child [population]
+(defn make-child [population falling-blocks]
   "Returns a new, evaluated child, produced by mutating the result
   of a parent selected from the given population."
   (let [individual (select population (count population) :tournament 2)
@@ -90,27 +89,18 @@
                         :score 0
                         :seed 0
                         :genome new-genome}]
-    (play-and-update new-individual)))
+    (play-and-update new-individual falling-blocks)))
 
-(defn score [population]
-  (map #(play-and-update %) population))
+(defn score [population falling-blocks]
+  (map #(play-and-update % falling-blocks) population))
 
 ; TODO: (high level functions) obtain the features info (i.e. how much hole tiles, actual height value, etc)
-
-(defn rand-tetris-seq [seed]
-  "generates a random sequence of falling tetris block for a generation of game(s)"
-  ; TODO: called for the (random) sequence of falling blocks for a generation of individuals
-  )
-
-(defn reset-individuals [population]
-  ; TODO: reset the state and score of each individual (that was mutaed, or just all for ease of coding)
-  )
 
 (defn report-individual [generation individual]
   "Prints a report on the status of an individual at the given generation."
   (println {:generation  generation
-            :score  (:score individual)
-            (dict-features-weights features (:genome individual))}))
+            :score       (:score individual)
+            :weights     (dict-features-weights features (:genome individual))}))
 
 (defn report-generation [generation population]
   "Prints a report on the status of the population at the given generation."
@@ -119,19 +109,20 @@
               :best-score  (:score current-best)
               :features    features})))
 
+(defn seed []
+  (repeatedly #(rand-int 6)))
+
 (defn evolve-tetris [population-size generations]
   "Runs an evolutionary algorithm to play tetris (strategies genome).
   Runs for a specified number of generations"
-  (loop [population (make-population population-size)       ; at generation 0, create population with random weights (for given possible strategies)
-         generation 0]                                      ; loop through each generation...
-    (score population)       ; each individual play a tetris game (with their genome of strategy weights) and store the end-game state and score
-    (report-generation generation population)                          ; Report on each generation
+  (loop [population (make-population population-size) ; at generation 0, create population with random weights (for given possible strategies)
+         generation 0                                       ; loop through each generation...
+         seed (seed)]
+    (report-generation generation population)               ; Report on each generation
     (if (>= generation generations)
       (best population)                                     ; if last generation, return the best individual
       (recur
         (conj (repeatedly (dec population-size) #(make-child population)) ; make a child, have it play game, put it in the population
                    (best population))
-        ;(reset-individuals population rand)                      ; TODO: reset individuals' states between generations
-        (inc generation)))))
-
-;Vector of cells (string  in 20 x 10
+        (inc generation)
+        (seed)))))
