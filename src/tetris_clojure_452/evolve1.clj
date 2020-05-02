@@ -33,9 +33,28 @@
               ind2))                                        ; ... otherwise keep the individual[s] considered best so far
           individuals))                                     ; return the individuals that had the best values
 
+(defn normalized-score [individual population]
+  "Returns the normalized fitness aka score of the individual in a population"
+  (/ (:score individual) (apply max (map :score population))))
+
+(defn roulette-selection [population population-size]
+  (loop [cnt 1 selected []]
+    (if (> cnt population-size)
+      selected
+      (let [r (rand)
+            pop (filter #(> (normalized-score % population) r) population)
+            individual (rand-nth pop)]
+        (recur (inc cnt) (conj selected individual))))))
+
 (defn select [population population-size parent-selection group-size]
-  "Returns an individual selected from population using tournament (w/ replacement) selection"
-  (best (repeatedly group-size #(rand-nth population))))
+  "Returns an individual selected from population using the specified selection method
+  Selection methods include: tournament (w/ replacement), roulette
+  with group-size as the tournament or elitism size"
+  (case parent-selection
+    :tournament (best (repeatedly group-size #(rand-nth population)))
+    :roulette (let [elites (take group-size (reverse (sort-by :score population)))
+                    selection (roulette-selection population (- population-size group-size))]
+                (into elites selection))))
 
 (defn mutate [genome mutation-rate mutation-range]
   "Returns a possibly mutated copy of genome. Each gene (a weight for a feature) has a chance of being mutated (mutation-range)
