@@ -9,7 +9,11 @@
 
 (def moves '(:left :right :rotate :fall))                   ; possible moves that can be made
 
-(def features '(:numHoleTiles :bumpiness :height))          ; TODO: The features (in order) that have weights
+(def features [:numHoleTiles :bumpiness :height])
+
+(defn dict-features-weights [features genome]
+  "Returns a dictionary with ':feature weight' 'key value' pairs"
+  (zipmap features genome))
 
 (defn rand-weight []                                        ; used for setting random weights in gen 0 randomly generated individuals
   "Returns random float value b/w -10 and 10"
@@ -69,10 +73,10 @@
 ; TODO: Modify the inputs of this to be what game code needs --> individual's genome instead of individual?
 ;       --> TODO: choose-move function to decide a move during gameplay (called by game code) based on genome (unchanging while individual is playing a game, possibly mutated after a generation)
 ;TODO: falling-blocks generator function to generate a random sequence of blocks that will fall for the individuals of a given generation (so block seqs are different for each generation, but the same for individuals in a generation)         
-(defn play-and-update [individual falling-blocks other-inputs]
+(defn play-and-update [individual]
   "updates an indiviudal's state and score after it plays a game of tetris"
   (let [new-individual individual                           ; individual with updated/replaced state and score
-        end-game (play-game individual falling-blocks other-inputs)   ; output of gameplay
+        end-game (play-game individual (:seed individual))   ; output of gameplay
         new-score (first end-game)
         new-state (second end-game)]                        ; TODO: CHECK: reverse order of outputs if necessary
     (assoc new-individual :state new-state :score new-score))) ; return individual with newly associated values after gameplay
@@ -86,20 +90,12 @@
                         :score 0
                         :seed 0
                         :genome new-genome}]
-    (play-and-update {:state (game/start-state)
-                      :score 0
-                      :seed 0
-                      :genome new-genome })))
+    (play-and-update new-individual)))
 
-(defn score [population falling-blocks other-inputs]
-  (map #(play-and-update % falling-blocks other-inputs) population))
+(defn score [population]
+  (map #(play-and-update %) population))
 
 ; TODO: (high level functions) obtain the features info (i.e. how much hole tiles, actual height value, etc)
-
-; TODO: modify this + give option to export to txt?
-(defn report [generation population]
-  "Prints a report on the status of the population at the given generation."
-  )
 
 (defn rand-tetris-seq [seed]
   "generates a random sequence of falling tetris block for a generation of game(s)"
@@ -110,13 +106,26 @@
   ; TODO: reset the state and score of each individual (that was mutaed, or just all for ease of coding)
   )
 
+(defn report-individual [generation individual]
+  "Prints a report on the status of an individual at the given generation."
+  (println {:generation  generation
+            :score  (:score individual)
+            (dict-features-weights features (:genome individual))}))
+
+(defn report-generation [generation population]
+  "Prints a report on the status of the population at the given generation."
+  (let [current-best (select population (count population) :tournament 2)]
+    (println {:generation  generation
+              :best-score  (:score current-best)
+              :features    features})))
+
 (defn evolve-tetris [population-size generations]
   "Runs an evolutionary algorithm to play tetris (strategies genome).
   Runs for a specified number of generations"
   (loop [population (make-population population-size)       ; at generation 0, create population with random weights (for given possible strategies)
          generation 0]                                      ; loop through each generation...
-    (score population (rand-tetris-seq generation) other-inputs)       ; each individual play a tetris game (with their genome of strategy weights) and store the end-game state and score
-    (report generation population)                          ; Report on each generation
+    (score population)       ; each individual play a tetris game (with their genome of strategy weights) and store the end-game state and score
+    (report-generation generation population)                          ; Report on each generation
     (if (>= generation generations)
       (best population)                                     ; if last generation, return the best individual
       (recur
