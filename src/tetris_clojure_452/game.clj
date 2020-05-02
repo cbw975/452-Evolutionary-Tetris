@@ -116,7 +116,7 @@
             )))))
 
 ; place figure all the way down.
-(defn drop [{:keys [filled] :as state}]
+(defn place-block [{:keys [filled] :as state}]
   (some #(when (not= filled (:filled %)) %)
         (iterate down state)))
 
