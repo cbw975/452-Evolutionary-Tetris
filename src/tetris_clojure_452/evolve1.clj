@@ -11,37 +11,46 @@
 
 (def features [:numHoleTiles :bumpiness :height])
 
-(defn dict-features-weights [features genome]
+(defn dict-features-weights
   "Returns a dictionary with ':feature weight' 'key value' pairs"
+  [features genome]
   (zipmap features genome))
 
-(defn rand-weight []                                        ; used for setting random weights in gen 0 randomly generated individuals
+(defn rand-weight                                        ; used for setting random weights in gen 0 randomly generated individuals
   "Returns random float value b/w -10 and 10"
+  []
   (- (rand 22) 10))
 
-(defn new-individual []
+(defn new-individual 
   "Returns a new, random individual."
+  []
   {:state  (game/start-state)
    :score  0
    :seed   0
    :genome [(rand-weight) (rand-weight) (rand-weight)]})    ; genome = weights (floats [-10,10) in order of defined features)
 
-(defn make-population [population-size]
+(defn make-population 
+  "Returns a population of population-size randomly weighted individuals"
+  [population-size]
   (repeatedly population-size new-individual))
 
-(defn best [individuals]
+(defn best 
   "Returns the best-scoring of the given individuals."
+  [individuals]
   (reduce (fn [ind1 ind2]
             (if (> (:score ind1) (:score ind2))             ; If an individual is higher than the highest score so far,
               ind1
               ind2))                                        ; ... otherwise keep the individual[s] considered best so far
           individuals))                                     ; return the individuals that had the best values
 
-(defn normalized-score [individual population]
+(defn normalized-score 
   "Returns the normalized fitness aka score of the individual in a population"
+  [individual population]
   (/ (:score individual) (apply max (map :score population))))
 
-(defn roulette-selection [population population-size]
+(defn roulette-selection 
+  "Roulette selection helper funtion - returns individual selected via roulette"
+  [population population-size]
   (loop [cnt 1 selected []]
     (if (> cnt population-size)
       selected
@@ -50,19 +59,21 @@
             individual (rand-nth pop)]
         (recur (inc cnt) (conj selected individual))))))
 
-(defn select [population population-size parent-selection group-size]
+(defn select
   "Returns an individual selected from population using the specified selection method
   Selection methods include: tournament (w/ replacement), roulette
   with group-size as the tournament or elitism size"
+  [population population-size parent-selection group-size]  
   (case parent-selection
     :tournament (best (repeatedly group-size #(rand-nth population)))
     :roulette (let [elites (take group-size (reverse (sort-by :score population)))
                     selection (roulette-selection population (- population-size group-size))]
                 (into elites selection))))
 
-(defn mutate [genome mutation-rate mutation-range]
+(defn mutate
   "Returns a possibly mutated copy of genome. Each gene (a weight for a feature) has a chance of being mutated (mutation-range)
   and if mutated, it is inc/dec by a small amount (mutation-range)"
+  [genome mutation-rate mutation-range]
   (for [gene genome]                                        ; For each gene,
     (if (> (rand) mutation-rate)                            ; 15% chance of mutating,
       gene                                                  ; 85 % chance not changed
@@ -71,8 +82,9 @@
         (min 10 (+ gene (+ (rand mutation-range) (/ mutation-range 2))))))))
 
 ;TODO: in game code: choose-move function to decide a move during gameplay (called by game code) based on genome (unchanging while individual is playing a game, possibly mutated after a generation)
-(defn play-and-update [individual seed]
+(defn play-and-update 
   "updates an indiviudal's state and score after it plays a game of tetris"
+  [individual seed]
   (let [new-seed seed
         new-individual (assoc individual :seed new-seed)    ; for the game code, only the seed and genome are used. The state and score will be updated at the end of the game
         game-output (play-game individual)                  ; output of gameplay
@@ -80,41 +92,50 @@
         game-state (second game-output)]
     (assoc new-individual :state game-state :score game-score))) ; return individual with newly associated values (state and score) after gameplay
 
-(defn make-child [population falling-blocks]
+(defn make-child 
   "Returns a new, evaluated child, produced by mutating the result
   of a parent selected from the given population."
+  [population]
   (let [individual (select population (count population) :tournament 2)
         new-genome (mutate (:genome individual) 0.15 2)
         new-individual {:state (game/start-state)
                         :score 0
-                        :seed 0
+                        :seed (:seed individual)
                         :genome new-genome}]
-    (play-and-update new-individual falling-blocks)))
+    (play-and-update new-individual (:seed new-individual))))
 
-(defn score [population falling-blocks]
+(defn score 
+  "Returns the population of individuals after playing their tetris games"
+  [population falling-blocks]
   (map #(play-and-update % falling-blocks) population))
 
 ; TODO: (high level functions) obtain the features info (i.e. how much hole tiles, actual height value, etc)
 
-(defn report-individual [generation individual]
+(defn report-individual
   "Prints a report on the status of an individual at the given generation."
+  [generation individual]
   (println {:generation  generation
             :score       (:score individual)
             :weights     (dict-features-weights features (:genome individual))}))
 
-(defn report-generation [generation population]
+(defn report-generation
   "Prints a report on the status of the population at the given generation."
+  [generation population]
   (let [current-best (select population (count population) :tournament 2)]
     (println {:generation  generation
               :best-score  (:score current-best)
               :features    features})))
 
-(defn seed []
-  (repeatedly #(rand-int 6)))
+(defn seed 
+  "Returns sequence of random ints from 0-6, corresponding to blocks to drop"
+  []
+  (repeatedly #(rand-int 7)))
 
-(defn evolve-tetris [population-size generations]
+(defn evolve-tetris
   "Runs an evolutionary algorithm to play tetris (strategies genome).
   Runs for a specified number of generations"
+  [population-size generations]
+  
   (loop [population (make-population population-size) ; at generation 0, create population with random weights (for given possible strategies)
          generation 0                                       ; loop through each generation...
          seed (seed)]
@@ -122,7 +143,7 @@
     (if (>= generation generations)
       (best population)                                     ; if last generation, return the best individual
       (recur
-        (conj (repeatedly (dec population-size) #(make-child population)) ; make a child, have it play game, put it in the population
-                   (best population))
-        (inc generation)
-        (seed)))))
+       (conj (repeatedly (dec population-size) #(make-child population)) ; make a child, have it play game, put it in the population
+             (best population))
+       (inc generation)
+       (seed)))))
