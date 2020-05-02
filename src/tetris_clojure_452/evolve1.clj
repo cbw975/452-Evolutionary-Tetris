@@ -1,5 +1,6 @@
-(ns tetris-clojure-452.evolve1
-  (:require [tetris-clojure-452.game :as game]))
+(ns tetris_clojure_452.evolve1
+  (:use tetris_clojure_452.gameboard)
+  (:use tetris_clojure_452.game))
 
 ;; Clojure code for a Tetris playing evolutionary algorithm
 ;; SIMPLE WEIGHT EVOLUTION:
@@ -21,20 +22,20 @@
   []
   (- (rand 22) 10))
 
-(defn new-individual 
+(defn new-individual
   "Returns a new, random individual."
   []
-  {:state  (game/start-state)
+  {:state  (get-board)    ; (mygame/start-state)
    :score  0
    :seed   0
    :genome [(rand-weight) (rand-weight) (rand-weight)]})    ; genome = weights (floats [-10,10) in order of defined features)
 
-(defn make-population 
+(defn make-population
   "Returns a population of population-size randomly weighted individuals"
   [population-size]
   (repeatedly population-size new-individual))
 
-(defn best 
+(defn best
   "Returns the best-scoring of the given individuals."
   [individuals]
   (reduce (fn [ind1 ind2]
@@ -43,12 +44,12 @@
               ind2))                                        ; ... otherwise keep the individual[s] considered best so far
           individuals))                                     ; return the individuals that had the best values
 
-(defn normalized-score 
+(defn normalized-score
   "Returns the normalized fitness aka score of the individual in a population"
   [individual population]
   (/ (:score individual) (apply max (map :score population))))
 
-(defn roulette-selection 
+(defn roulette-selection
   "Roulette selection helper funtion - returns individual selected via roulette"
   [population population-size]
   (loop [cnt 1 selected []]
@@ -59,12 +60,14 @@
             individual (rand-nth pop)]
         (recur (inc cnt) (conj selected individual))))))
 
+;TODO: remove individuals from population when adding them in (delete same number put in, not just one each time)
 (defn select
   "Returns an individual selected from population using the specified selection method
   Selection methods include: tournament (w/ replacement), roulette
   with group-size as the tournament or elitism size"
-  [population population-size parent-selection group-size]  
+  [population population-size parent-selection group-size]
   (case parent-selection
+    :best (best population)
     :tournament (best (repeatedly group-size #(rand-nth population)))
     :roulette (let [elites (take group-size (reverse (sort-by :score population)))
                     selection (roulette-selection population (- population-size group-size))]
@@ -82,7 +85,7 @@
         (min 10 (+ gene (+ (rand mutation-range) (/ mutation-range 2))))))))
 
 ;TODO: in game code: choose-move function to decide a move during gameplay (called by game code) based on genome (unchanging while individual is playing a game, possibly mutated after a generation)
-(defn play-and-update 
+(defn play-and-update
   "updates an indiviudal's state and score after it plays a game of tetris"
   [individual seed]
   (let [new-seed seed
@@ -92,19 +95,19 @@
         game-state (second game-output)]
     (assoc new-individual :state game-state :score game-score))) ; return individual with newly associated values (state and score) after gameplay
 
-(defn make-child 
+(defn make-child
   "Returns a new, evaluated child, produced by mutating the result
   of a parent selected from the given population."
   [population]
-  (let [individual (select population (count population) :tournament 2)
+  (let [individual (select population (count population) :best 1)
         new-genome (mutate (:genome individual) 0.15 2)
-        new-individual {:state (game/start-state)
+        new-individual {:state (get-board)     ;:state (mygame/start-state)
                         :score 0
                         :seed (:seed individual)
                         :genome new-genome}]
     (play-and-update new-individual (:seed new-individual))))
 
-(defn score 
+(defn score
   "Returns the population of individuals after playing their tetris games"
   [population falling-blocks]
   (map #(play-and-update % falling-blocks) population))
@@ -116,34 +119,41 @@
   [generation individual]
   (println {:generation  generation
             :score       (:score individual)
+            :seq         (first (:seed individual))
             :weights     (dict-features-weights features (:genome individual))}))
 
 (defn report-generation
   "Prints a report on the status of the population at the given generation."
   [generation population]
-  (let [current-best (select population (count population) :tournament 2)]
+  (let [current-best (best population)]
     (println {:generation  generation
+              :seq         (first (:seed current-best))
               :best-score  (:score current-best)
               :features    features})))
-
-(defn seed 
-  "Returns sequence of random ints from 0-6, corresponding to blocks to drop"
-  []
-  (repeatedly #(rand-int 7)))
 
 (defn evolve-tetris
   "Runs an evolutionary algorithm to play tetris (strategies genome).
   Runs for a specified number of generations"
   [population-size generations]
-  
-  (loop [population (make-population population-size) ; at generation 0, create population with random weights (for given possible strategies)
-         generation 0                                       ; loop through each generation...
-         seed (seed)]
-    (report-generation generation population)               ; Report on each generation
-    (if (>= generation generations)
-      (best population)                                     ; if last generation, return the best individual
-      (recur
-       (conj (repeatedly (dec population-size) #(make-child population)) ; make a child, have it play game, put it in the population
-             (best population))
-       (inc generation)
-       (seed)))))
+
+  (loop [population (make-population population-size)       ; at generation 0, create population with random weights (for given possible strategies)
+         generation 1]                                      ; loop through each generation...
+    (let [seed (repeatedly #(rand-int 7))
+          population (score population seed)]
+      (report-generation generation population)               ; Report on each generation
+      (if (>= generation generations)
+        (best population)                                     ; if last generation, return the best individual
+        (recur
+          (conj (repeatedly (dec population-size) #(make-child population)) ; make a child, have it play game, put it in the population
+                (best population))
+          (inc generation))))))
+
+(evolve-tetris 50 5)
+
+; Once have moves decided based on weights --> if an individual gets >150 early, if there is another individual with very similar weights, then it is likely valid. Otherwise not.
+; TODO:
+;       - choose move based on genome/weights
+;       - features that are considered and have weights in genome
+;       - every nth generation, print report-generation (and maybe board state using ascii char instead of colors?) to txt file
+;       - function / paramater allowing graphics to be turned on/off based on user input AND/OR nth generation (only best performing) AND/OR specific individual (if any become sus...)
+;       - FREAKING PRESENTATION AND WRITEUP
