@@ -1,8 +1,6 @@
-(ns tetris-clojure-452.core
-  (:import
-    (java.awt.event ActionListener KeyListener KeyEvent)))
+(ns tetris-clojure-452.core)
 
-;  For storing game state + string based display to repl
+; For storing game state + string based display to repl
 (def empty-block 0)
 (def active-block 1)                                        ; active cells recognized as 1s
 (def placed-block 2)                                        ; filled cells recognized as 2s
@@ -104,7 +102,7 @@
     state))
 
 ; shift cell down
-(defn fall [state]
+(defn down [state]
   (let [shifted (update-in state [:active-pos 1] inc)]      ; y-coord of active block shifted down 1
     (if (valid? shifted)
       shifted
@@ -120,7 +118,7 @@
 ; place figure all the way down.
 (defn drop [{:keys [filled] :as state}]
   (some #(when (not= filled (:filled %)) %)
-        (iterate fall state)))
+        (iterate down state)))
 
 (defn game-over [{:keys [score] :as state}]
   ; TODO: use this function to return whatever will get sent to evolution code ??
@@ -132,7 +130,7 @@
   (cond->                                                   ; conditional threading at the new game step
     (update state :FPS inc)
     (zero? (mod FPS (max time-limit 1)))                           ; if the Frames per Second (GUI code) modded with the current FPS is zero
-    fall                                                    ; the shape falls.
+    down                                                    ; the shape downs.
     (some zero? (map second filled))                        ; if some of the y coord of any filled block is zero
     ((game-over state)
      (into (dissoc (start-state) :score)) )                 ; reset the game but maintain the score
