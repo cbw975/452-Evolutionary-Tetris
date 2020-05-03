@@ -1,6 +1,7 @@
 (ns tetris_clojure_452.evolve1
   (:use tetris_clojure_452.gameboard)
-  (:use tetris_clojure_452.game))
+  (:use tetris_clojure_452.game)
+  (:require [clojure.string :as string]))
 
 ;; Clojure code for a Tetris playing evolutionary algorithm
 ;; SIMPLE WEIGHT EVOLUTION:
@@ -8,7 +9,44 @@
 ;; - relative "weight" (-10 to 10) for each feature determines in what way and how that feature influences move-choices when playing
 ;; - WEIGHT EVOLUTION - features are given, weights are evolved
 
-(def moves '(:left :right :rotate :fall))                   ; possible moves that can be made
+(defn cal-holes [board] ;;hole is defined as an empty space such that there is at least one tile in the same column above it
+  (let [counter 10
+        holes 0]
+    (while (< counter 190)
+      (do (if (and (= (nth board counter) "black") (not (= (nth board (- counter 10) "black"))))
+            (inc holes)) (inc counter)))))
+
+(defn complete-lines [board]
+  (let [new-board (->> board
+                       (partition 10)
+                       (filter #(some #{"black"} %))
+                       (apply concat))
+        num-removed (- (count board) (count new-board))]
+    [(/ num-removed 10)]))
+
+(defn calculate-score [h1 h2]
+  (reduce + [h1 h2]))
+
+(defn calculate-move [individual board block]
+  (let [tempBoard board
+        results {}
+        moves '(:left :right :rotate)
+        counter 0
+        tempScore 0]
+    ;;calculate new board
+    (while (< counter 3)
+      (case (nth moves counter)
+        :left (swap! OFFSET #(map + [-1 0] %))
+        :right (swap! OFFSET #(map + [1 0] %))
+        :rotate nil ; edit code here
+        )
+      (reset! tempScore (calculate-score (cal-holes board) (complete-lines board)))
+      (assoc results (nth moves counter) tempScore)
+      (reset! tempScore 0)
+      (inc counter)
+      (reset! OFFSET [0 0]))
+    (key (apply max-key val results))
+    ))
 
 (def features [:numHoleTiles :bumpiness :height])
 
@@ -17,7 +55,7 @@
   [features genome]
   (zipmap features genome))
 
-(defn rand-weight                                        ; used for setting random weights in gen 0 randomly generated individuals
+(defn rand-weight                                           ; used for setting random weights in gen 0 randomly generated individuals
   "Returns random float value b/w -10 and 10"
   []
   (- (rand 22) 10))
@@ -25,7 +63,7 @@
 (defn new-individual
   "Returns a new, random individual."
   []
-  {:state  (get-board)    ; (mygame/start-state)
+  {:state  (get-board)                                      ; (mygame/start-state)
    :score  0
    :seed   0
    :genome [(rand-weight) (rand-weight) (rand-weight)]})    ; genome = weights (floats [-10,10) in order of defined features)
@@ -60,18 +98,18 @@
             individual (rand-nth pop)]
         (recur (inc cnt) (conj selected individual))))))
 
-;TODO: remove individuals from population when adding them in (delete same number put in, not just one each time)
 (defn select
   "Returns an individual selected from population using the specified selection method
   Selection methods include: tournament (w/ replacement), roulette
   with group-size as the tournament or elitism size"
-  [population population-size parent-selection group-size]
-  (case parent-selection
-    :best (best population)
-    :tournament (best (repeatedly group-size #(rand-nth population)))
-    :roulette (let [elites (take group-size (reverse (sort-by :score population)))
-                    selection (roulette-selection population (- population-size group-size))]
-                (into elites selection))))
+  ([population] (select population -1 :tournament 2))
+  ([population population-size parent-selection group-size]
+   (case parent-selection
+     :best (best population)
+     :tournament (best (repeatedly group-size #(rand-nth population)))
+     :roulette (let [elites (take group-size (reverse (sort-by :score population)))
+                     selection (roulette-selection population (- population-size group-size))]
+                 (into elites selection)))))
 
 (defn mutate
   "Returns a possibly mutated copy of genome. Each gene (a weight for a feature) has a chance of being mutated (mutation-range)
@@ -93,19 +131,22 @@
         game-output (play-game individual)                  ; output of gameplay
         game-score (first game-output)                      ; TODO: MAKE SURE PROPERLY GETS THE gameover-state and gameover-score
         game-state (second game-output)]
+    ;(print "\n\n GAME SCORE:" game-score "\n GAME STATE Partially" (first game-state))
     (assoc new-individual :state game-state :score game-score))) ; return individual with newly associated values (state and score) after gameplay
 
 (defn make-child
   "Returns a new, evaluated child, produced by mutating the result
   of a parent selected from the given population."
   [population]
-  (let [individual (select population (count population) :best 1)
+  (let [individual (select population)
         new-genome (mutate (:genome individual) 0.15 2)
-        new-individual {:state (get-board)     ;:state (mygame/start-state)
-                        :score 0
-                        :seed (:seed individual)
-                        :genome new-genome}]
-    (play-and-update new-individual (:seed new-individual))))
+        new-individual {:state  (get-board)                 ;:state (mygame/start-state)
+                        :score  0
+                        :seed   (:seed individual)
+                        :genome new-genome}
+        new-played-individual (play-and-update new-individual (:seed new-individual))]
+    ;(print "\nsanity check: " (:score new-played-individual) (:genome new-played-individual))
+    new-played-individual))
 
 (defn score
   "Returns the population of individuals after playing their tetris games"
@@ -114,41 +155,61 @@
 
 ; TODO: (high level functions) obtain the features info (i.e. how much hole tiles, actual height value, etc)
 
-(defn report-individual
-  "Prints a report on the status of an individual at the given generation."
+(defn individual-info
+  "(map of) report on the status of an individual at the given generation"
   [generation individual]
-  (println {:generation  generation
-            :score       (:score individual)
-            :seq         (first (:seed individual))
-            :weights     (dict-features-weights features (:genome individual))}))
+  {:generation   generation
+   :score        (:score individual)
+   :part-of-seed (take 500 (:seed individual))
+   :weights      (dict-features-weights features (:genome individual))})
+
+; (defn report-individual
+;  "Prints a report on the status of an individual at the given generation."
+;  [generation individual]
+;  (println (individual-info generation individual)))
 
 (defn report-generation
   "Prints a report on the status of the population at the given generation."
   [generation population]
   (let [current-best (best population)]
-    (println {:generation  generation
-              :seq         (first (:seed current-best))
-              :best-score  (:score current-best)
-              :features    features})))
+    (println {:generation generation
+              :best-score (:score current-best)
+              :features   features})))
+
+;;Things to make this better: make the name of the file display current generation; does the seed vector work?
+(defn record-best 
+  "Creates a text file of the best individual in a given generation"
+  [generation population]
+  (let [fileName (string/join ["Gen_" generation ".txt"])]
+    (spit fileName (with-out-str (println (individual-info generation (best population)))))))
+
+;(defn sus? [generation individual average]                  ; TODO: Make this instead take population, then "let" average calculation be done given population
+;  (if (> (:weight individual) average + 50)
+;    (record-best (concat "sus" generation) individual)))
 
 (defn evolve-tetris
   "Runs an evolutionary algorithm to play tetris (strategies genome).
-  Runs for a specified number of generations"
-  [population-size generations]
+  Runs for a specified number of generations.
+  Optionally, can record certain generations, specified in a seq (i.e. vector) - Note: first generation is generation 1"
+  ([population-size generations] (evolve-tetris population-size generations []))
+  ([population-size generations record-these-generations]
+   (loop [population (make-population population-size)      ; at generation 0, create population with random weights (for given possible strategies)
+          generation 0]                                     ; loop through each generation...
+     (print generation "********************\n")
+     (report-generation generation population)              ; Report on each generation
+     (print (for [individual population] (:score individual)))
+     (let [seed (repeatedly #(rand-int 7))
+           population (score population seed)]
+       ;(if (contains? record-these-generations generation)  ; If this generation is speicfied to be recorded...
+       ;         (record-best generation population))               ; ... record it
+       (if (>= generation generations)
+         (best population)                                  ; if last generation, return the best individual
+         (recur (conj (repeatedly (dec population-size)
+                                  #(make-child population)) ; make a child, have it play game, put it in the population
+                      (best population))
+                (inc generation)))))))
 
-  (loop [population (make-population population-size)       ; at generation 0, create population with random weights (for given possible strategies)
-         generation 1]                                      ; loop through each generation...
-    (let [seed (repeatedly #(rand-int 7))
-          population (score population seed)]
-      (report-generation generation population)               ; Report on each generation
-      (if (>= generation generations)
-        (best population)                                     ; if last generation, return the best individual
-        (recur
-          (conj (repeatedly (dec population-size) #(make-child population)) ; make a child, have it play game, put it in the population
-                (best population))
-          (inc generation))))))
-
-(evolve-tetris 50 5)
+(evolve-tetris 7 2 [])
 
 ; Once have moves decided based on weights --> if an individual gets >150 early, if there is another individual with very similar weights, then it is likely valid. Otherwise not.
 ; TODO:

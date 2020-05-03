@@ -1,8 +1,8 @@
 ;(ns tetrisclone.core
 (ns tetris_clojure_452.game
   (:use tetris_clojure_452.gameboard)
+  (:use tetris_clojure_452.evolve1)
   (:import
-   (javax.swing JFrame)
    (java.awt Canvas Font Graphics Color Toolkit)
    (java.awt.event ActionListener KeyListener KeyEvent))
   (:gen-class))
@@ -95,7 +95,7 @@
     (reset! ROTATION nil)
     (Thread/sleep 0)
     ;;random move here for now but use the calculate-move function here later; is this where the random move should be?
-    (case (rand-move)
+    (case (calculate-move individual board block)
       :left (swap! OFFSET #(map + [-1 0] %))
       :right (swap! OFFSET #(map + [1 0] %))
       )

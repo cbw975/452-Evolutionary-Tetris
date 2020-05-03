@@ -1,6 +1,8 @@
 /target
 /classes
 /checkouts
+.gitignore
+kn.clj
 profiles.clj
 pom.xml
 pom.xml.asc
