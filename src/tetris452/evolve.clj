@@ -197,4 +197,22 @@
 
 ; TODO: make toDisplay be able to specify individuals list instead of all???
 
-(evolve-tetris 4 20 [] [1 5 10])
+(evolve-tetris 20 3 [] [1 2 3])
+
+;;; PLAY GAME WITH EXAMPLE GENERATIONS:
+
+;; population-size: 20, generation: 1
+;; best-individual: {:generation 1, :score 132, :part-of-seed (3 6 6 3 6 0 3 5 1 6 0 0 4 2 3 5 4 6 5 5 5 5 3 3 0 2 0 5 4 3 1 5 0 6 3 2 6 3 2 4 6 2 1 1 1 6 6 4 6 5 0 5 5 1 5 4 1 6 1 3 6 4 0 3 5 3 1 4 3 6 4 2 5 3 1 4 6 5 1 3 2 1 1 5 0 5 2 2 2 1 0 2 5 6 1 5 1 5 4 6), :weights {:numHoleTiles 1.421941002485248, :bumpiness -6.999830780392358, :height -6.262096531257532}}
+(let [ind {:state (get-board)
+           :score 132                                       ; 0, but gets 132 when playing
+           :seed (3 6 6 3 6 0 3 5 1 6 0 0 4 2 3 5 4 6 5 5 5 5 3 3 0 2 0 5 4 3 1 5 0 6 3 2 6 3 2 4 6 2 1 1 1 6 6 4 6 5 0 5 5 1 5 4 1 6 1 3 6 4 0 3 5 3 1 4 3 6 4 2 5 3 1 4 6 5 1 3 2 1 1 5 0 5 2 2 2 1 0 2 5 6 1 5 1 5 4 6)
+           :genome [1.421941002485248 -6.999830780392358 -6.262096531257532]]
+  (play-game true ind))
+
+;; population-size: 20, generation: 10
+;; best-individual: {:generation 7, :score 440, :part-of-seed (0 4 5 6 2 0 3 0 0 1 0 0 6 5 4 6 6 0 3 6 6 0 6 1 5 1 2 5 4 5 5 6 3 0 5 3 1 2 5 1 1 0 5 0 2 4 3 3 4 4 1 1 2 4 3 3 5 2 1 2 1 1 4 5 6 5 5 1 1 3 1 6 2 1 0 5 5 2 6 3 0 0 1 0 3 3 2 0 0 0 3 2 4 6 3 0 5 4 5 1), :weights {:numHoleTiles -6.07038729982036, :bumpiness -3.105552508980165, :height -2.7903293323861824}}
+(let [ind {:state (get-board)                               ; intiially empty until play game
+            :score 440                                      ; 0, but gets 440 when playing
+            :seed (0 4 5 6 2 0 3 0 0 1 0 0 6 5 4 6 6 0 3 6 6 0 6 1 5 1 2 5 4 5 5 6 3 0 5 3 1 2 5 1 1 0 5 0 2 4 3 3 4 4 1 1 2 4 3 3 5 2 1 2 1 1 4 5 6 5 5 1 1 3 1 6 2 1 0 5 5 2 6 3 0 0 1 0 3 3 2 0 0 0 3 2 4 6 3 0 5 4 5 1)
+            :genome [-6.07038729982036 -3.105552508980165 -2.7903293323861824]]
+  (play-game true ind))
