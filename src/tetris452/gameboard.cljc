@@ -94,6 +94,16 @@
      (into (vec (take num-removed (repeat "black")))
            new-board)]))
 
+(defn clear-lines [board]
+  (let [new-board (->> board
+                       (partition COLS)
+                       (filter #(some #{"black"} %))
+                       (apply concat))
+        num-removed (- (count board) (count new-board))]
+    [num-removed
+     (into (vec (take num-removed (repeat "black")))
+           new-board)]))
+
 (defn update-board [board {:keys [color shape]}]
   (vec (map #(let [[x y] (pos-to-xy %)]
                (if (some (fn [[px py]] (and (= x px) (= y py)))
