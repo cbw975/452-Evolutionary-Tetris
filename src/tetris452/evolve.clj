@@ -1,6 +1,6 @@
-(ns tetris_clojure_452.evolve1
-  (:use tetris_clojure_452.gameboard)
-  (:use tetris_clojure_452.game)
+(ns tetris452.evolve
+  (:use tetris452.gameboard)
+  (:use tetris452.game)
   (:require [clojure.string :as string]))
 
 ;; Clojure code for a Tetris playing evolutionary algorithm
@@ -9,12 +9,18 @@
 ;; - relative "weight" (-10 to 10) for each feature determines in what way and how that feature influences move-choices when playing
 ;; - WEIGHT EVOLUTION - features are given, weights are evolved
 
-(defn cal-holes [board] ;;hole is defined as an empty space such that there is at least one tile in the same column above it
-  (let [counter 10
-        holes 0]
-    (while (< counter 190)
-      (do (if (and (= (nth board counter) "black") (not (= (nth board (- counter 10) "black"))))
-            (inc holes)) (inc counter)))))
+(defn cal-holes [board]
+  (loop [counter 10
+         holes 0]
+    (if (>= counter (count board))                          ;; for any size board
+      holes
+      (recur
+        (inc counter)
+        (if (and (= (nth board counter) "black")
+                 (not (= (nth board (- counter 10)) "black")))
+          (inc holes)
+          holes)))))
+
 
 (defn complete-lines [board]
   (let [new-board (->> board
@@ -24,29 +30,9 @@
         num-removed (- (count board) (count new-board))]
     [(/ num-removed 10)]))
 
-(defn calculate-score [h1 h2]
-  (reduce + [h1 h2]))
-
-(defn calculate-move [individual board block]
-  (let [tempBoard board
-        results {}
-        moves '(:left :right :rotate)
-        counter 0
-        tempScore 0]
-    ;;calculate new board
-    (while (< counter 3)
-      (case (nth moves counter)
-        :left (swap! OFFSET #(map + [-1 0] %))
-        :right (swap! OFFSET #(map + [1 0] %))
-        :rotate nil ; edit code here
-        )
-      (reset! tempScore (calculate-score (cal-holes board) (complete-lines board)))
-      (assoc results (nth moves counter) tempScore)
-      (reset! tempScore 0)
-      (inc counter)
-      (reset! OFFSET [0 0]))
-    (key (apply max-key val results))
-    ))
+(defn calculate-score [h1 h2 h3 individual]
+  (let [weights (:genome individual)]
+        (reduce + [(* h1 (first weights))(* h2 (nth weights 1))(* h3 (nth weights 2))])))
 
 (def features [:numHoleTiles :bumpiness :height])
 
@@ -79,7 +65,7 @@
   (reduce (fn [ind1 ind2]
             (if (> (:score ind1) (:score ind2))             ; If an individual is higher than the highest score so far,
               ind1
-              ind2))                                        ; ... otherwise keep the individual[s] considered best so far
+              ind2))
           individuals))                                     ; return the individuals that had the best values
 
 (defn normalized-score
@@ -128,11 +114,12 @@
   [individual seed]
   (let [new-seed seed
         new-individual (assoc individual :seed new-seed)    ; for the game code, only the seed and genome are used. The state and score will be updated at the end of the game
-        game-output (play-game individual)                  ; output of gameplay
+        game-output (play-game new-individual)                  ; output of gameplay
         game-score (first game-output)                      ; TODO: MAKE SURE PROPERLY GETS THE gameover-state and gameover-score
         game-state (second game-output)]
-    ;(print "\n\n GAME SCORE:" game-score "\n GAME STATE Partially" (first game-state))
     (assoc new-individual :state game-state :score game-score))) ; return individual with newly associated values (state and score) after gameplay
+
+(def child-count 0)
 
 (defn make-child
   "Returns a new, evaluated child, produced by mutating the result
@@ -145,7 +132,7 @@
                         :seed   (:seed individual)
                         :genome new-genome}
         new-played-individual (play-and-update new-individual (:seed new-individual))]
-    ;(print "\nsanity check: " (:score new-played-individual) (:genome new-played-individual))
+    (print "\n\tchildren:" (inc child-count) "\n")
     new-played-individual))
 
 (defn score
@@ -153,31 +140,29 @@
   [population falling-blocks]
   (map #(play-and-update % falling-blocks) population))
 
-; TODO: (high level functions) obtain the features info (i.e. how much hole tiles, actual height value, etc)
-
 (defn individual-info
   "(map of) report on the status of an individual at the given generation"
   [generation individual]
   {:generation   generation
    :score        (:score individual)
-   :part-of-seed (take 500 (:seed individual))
+   ;:part-of-seed (take 2 (:seed individual)) #TODO: Seed is considered long, not list
    :weights      (dict-features-weights features (:genome individual))})
 
-; (defn report-individual
-;  "Prints a report on the status of an individual at the given generation."
-;  [generation individual]
-;  (println (individual-info generation individual)))
+(defn report-individual
+  "Prints a report on the status of an individual at the given generation."
+  [generation individual]
+  (print "\t" (individual-info generation individual)) "\n")
 
 (defn report-generation
   "Prints a report on the status of the population at the given generation."
   [generation population]
   (let [current-best (best population)]
-    (println {:generation generation
+    (println "\n************ gen report:" {:generation generation
               :best-score (:score current-best)
               :features   features})))
 
 ;;Things to make this better: make the name of the file display current generation; does the seed vector work?
-(defn record-best 
+(defn record-best
   "Creates a text file of the best individual in a given generation"
   [generation population]
   (let [fileName (string/join ["Gen_" generation ".txt"])]
@@ -187,34 +172,26 @@
 ;  (if (> (:weight individual) average + 50)
 ;    (record-best (concat "sus" generation) individual)))
 
+(def get-seed1 (repeatedly #(rand-int 7)))
+
 (defn evolve-tetris
   "Runs an evolutionary algorithm to play tetris (strategies genome).
   Runs for a specified number of generations.
   Optionally, can record certain generations, specified in a seq (i.e. vector) - Note: first generation is generation 1"
-  ([population-size generations] (evolve-tetris population-size generations []))
-  ([population-size generations record-these-generations]
-   (loop [population (make-population population-size)      ; at generation 0, create population with random weights (for given possible strategies)
-          generation 0]                                     ; loop through each generation...
-     (print generation "********************\n")
-     (report-generation generation population)              ; Report on each generation
-     (print (for [individual population] (:score individual)))
-     (let [seed (repeatedly #(rand-int 7))
-           population (score population seed)]
-       ;(if (contains? record-these-generations generation)  ; If this generation is speicfied to be recorded...
-       ;         (record-best generation population))               ; ... record it
-       (if (>= generation generations)
-         (best population)                                  ; if last generation, return the best individual
-         (recur (conj (repeatedly (dec population-size)
-                                  #(make-child population)) ; make a child, have it play game, put it in the population
-                      (best population))
-                (inc generation)))))))
+  [population-size generations record-these-generations]
+  (loop [population (make-population population-size)      ; at generation 0, create population with random weights (for given possible strategies)
+         generation 0]                                     ; loop through each generation...
+    (report-generation generation population)              ; Report on each generation
+    (print "\nIndividuals (and child until end):\n")        ; includes child until last generation
+    (for [individual population] (print "\t" (report-individual generation individual)))
+    (let [seed get-seed1
+          population (score population seed)]
+      ;(if (contains? record-these-generations generation)  ; If this generation is speicfied to be recorded...
+      ;         (record-best generation population))               ; ... record it
+      (if (>= generation generations)
+        (best population)                                  ; if last generation, return the best individual
+        (recur (conj (repeatedly (dec population-size) #(make-child population)) ; make a child, have it play game, put it in the population
+                     (best population))
+               (inc generation))))))
 
-(evolve-tetris 7 2 [])
-
-; Once have moves decided based on weights --> if an individual gets >150 early, if there is another individual with very similar weights, then it is likely valid. Otherwise not.
-; TODO:
-;       - choose move based on genome/weights
-;       - features that are considered and have weights in genome
-;       - every nth generation, print report-generation (and maybe board state using ascii char instead of colors?) to txt file
-;       - function / paramater allowing graphics to be turned on/off based on user input AND/OR nth generation (only best performing) AND/OR specific individual (if any become sus...)
-;       - FREAKING PRESENTATION AND WRITEUP
+(evolve-tetris 4 2 [])

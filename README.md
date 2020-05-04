@@ -1,4 +1,4 @@
-# tetris_clojure_452
+# tetris452
 
 A Clojure library designed to ... well, that part is up to you.
 

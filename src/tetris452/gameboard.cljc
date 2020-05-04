@@ -1,4 +1,4 @@
-(ns tetris_clojure_452.gameboard)
+(ns tetris452.gameboard)
 
 (def WIDTH (atom nil))
 (def HEIGHT (atom nil))
@@ -19,7 +19,7 @@
 ;;edited so that it takes in a specific block from a seed, look at the github code for the original function
 (defn get-block [next-seedNum]
   (let [shape (nth SHAPES next-seedNum)
-        offset (inc (rand-int (- COLS 3)))]
+        offset (inc 3)]
     {:color (rand-nth COLORS)
      :shape (map (fn [[x y]] [(+ x offset) y]) shape)}))
 
@@ -63,7 +63,7 @@
 
           rotated (map (fn [[x y]]
                          [(int (+ avg-x (- y avg-y)))
-                          (int (- avg-y (- x avg-x)))])
+                          (+(int (- avg-y (- x avg-x)))1)])
                        shape)]
       (if (collides? board rotated)
         shape rotated))
