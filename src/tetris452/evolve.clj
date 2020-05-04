@@ -141,8 +141,8 @@
 ;;Things to make this better: make the name of the file display current generation; does the seed vector work?
 (defn record-best
   "Creates a text file of the best individual in a given generation"
-  [generation population]
-  (let [fileName (string/join ["Gen_" generation ".txt"])]
+  [generation population title]
+  (let [fileName (string/join [title "Gen_" generation ".txt"])]
     (spit fileName (with-out-str (println (individual-info generation (best population)))))))
 ;(spit fileName (individual-info generation (best population)))))
 
@@ -157,6 +157,8 @@
   [coll item]
   (some #(= item %) coll))
 
+;(def baseline-seed get-seed1)
+
 (defn evolve-tetris
   "Runs an evolutionary algorithm to play tetris (strategies genome).
   Runs for a specified number of generations.
@@ -168,19 +170,26 @@
     ;(print "\nIndividuals (and child until end):\n")        ; includes child until last generation
     ;(for [individual population] (print "\t" (report-individual generation individual)))
     (let [seed get-seed1
+          ;base-seed-population population (score population baseline-seed false)
           population (score population seed false)
           ;(cond (contains? displayGen generation) (score population seed true)
           ;            :else (score population seed false))
           ]
 
-      (if (.contains recordGen generation)                  ; If this generation is speicfied to be recorded...
-        (record-best generation population)                 ; ... record it
+      (if (or (.contains recordGen generation)              ; If this generation is speicfied to be recorded...
+              (> (:score (best population)) 400))           ; ... or score is above threshold...
+        (record-best generation population (str "pop" population-size "_") )                 ; ... record it
         ; TODO: Insert option to video record the game being played --> call play-game with this "best" indivdual (weights and seed)
         )
-      (if (> (:score (best population)) 400)
-        (record-best generation population))
+
+      ;BASELINE-SEED POPULATION:
+      ;(if (or (.contains recordGen generation)              ; If this generation is speicfied to be recorded...
+      ;              (> (:score (best base-seed-population)) 400))           ; ... or score is above threshold...
+      ;        (record-best generation base-seed-population (str "BASE_pop" population-size "_"))                 ; ... record it
+      ;        ; TODO: Insert option to video record the game being played --> call play-game with this "best" indivdual (weights and seed)
+      ;        )
+
       (if (>= generation generations)
-        ;(do (print "done!: ") (best population))                                  ; if last generation, return the best individual
         (print (individual-info generation (best population)))
         (recur (conj (repeatedly (dec population-size) #(make-child population)) ; make a child, have it play game, put it in the population
                      (best population))

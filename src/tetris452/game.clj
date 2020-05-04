@@ -247,14 +247,14 @@
                             old-time (System/currentTimeMillis)]
                        (reset! OFFSET [0 0])
                        (reset! ROTATION nil)
-                       (Thread/sleep 10)
+                       (Thread/sleep 5)
 
 
                        ;(calculate-move board block)
                        (draw canvas (draw-board board block score))
 
                        (let [cur-time (System/currentTimeMillis)
-                             new-time (long (if (> (- cur-time old-time) 250) ;;changes game tick
+                             new-time (long (if (> (- cur-time old-time) 25) ;;changes game tick
                                               cur-time
                                               old-time))
                              drop? (> new-time old-time)
