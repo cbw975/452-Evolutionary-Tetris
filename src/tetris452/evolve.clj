@@ -122,7 +122,7 @@
   [generation individual]
   {:generation   generation
    :score        (:score individual)
-   :part-of-seed (take 10 (:seed individual))
+   :part-of-seed (take 100 (:seed individual))
    :weights      (dict-features-weights features (:genome individual))})
 
 (defn report-individual
@@ -177,6 +177,8 @@
         (record-best generation population)                 ; ... record it
         ; TODO: Insert option to video record the game being played --> call play-game with this "best" indivdual (weights and seed)
         )
+      (if (> (:score (best population)) 400)
+        (record-best generation population))
       (if (>= generation generations)
         ;(do (print "done!: ") (best population))                                  ; if last generation, return the best individual
         (print (individual-info generation (best population)))
