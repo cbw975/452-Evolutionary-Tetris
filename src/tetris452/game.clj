@@ -109,6 +109,34 @@
 ;     a) 2 separate state-properties: fall-seq and active-ind, where active-ind is the index of the shape we are using from the seq
 ;     b) call to a .... however did in project
 
+(defn cell-valid?
+  "checks for collisions - Returns bool for if the cell at (r,c) is un-filled and in the 'board' bounds"
+  [x y board]
+  (and board (< -1 x world-width) (< -1 y world-height)     ; board exists (non-nil) and the cell is non-negative and within the world-width and world-height
+       (not (pos? (read-cell x y board)))))
+
+(defn place-block
+  [board x y block-type]
+  (when (cell-valid? x y board)
+    (assoc-in board [y x] block-type)))
+
+(defn place-blocks
+  [board x y coords block-type]
+  (if (count coords)                                        ; if there are (still) blocks to be placed, place them
+    (let [curr-rel-coord (first coords)
+          rest-coords (rest coords)
+          curr-coord (map + curr-rel-coord [x y])
+          updated-board (place-block board curr-coord block-type)] ; 'nil' if invalid board
+      (recur updated-board x y rest-coords block-type))
+    ; else:
+    board                                                   ; return the updated board with all the blocks placed. If invalid, will be nil
+    ))
+
+(defn place-shape
+  [shape active-pos block-type board]
+  (let [coords (active-coords shape)]
+    (place-blocks board active-pos coords block-type)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;   PREVIOUS CODE TO BE MODIFIED/REPLACED   ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -122,15 +150,6 @@
 (defn swap [items i1 i2]
   (assoc items i1 (items i2) i2 (items i1)))                ; (assoc seq i1 item1 i2 item2) replaces item1 with item2 at index i2 and vice versa
 
-
-; check if active-block intersects with filled/out-of-bounds blocks
-(defn valid? [{:keys [filled] :as state}]
-  ; for every coordinate in the current active shape (shape-cells), check if within world boundaries and not in the filled cells
-  (every? (fn [[x y :as coord]]
-            (and ((complement filled) coord)
-                 (<= 0 x (- world-width 1)) (< y (- world-height 1))))
-          (shape-coords state)))
-
 ; rotates a tetris block (clockwise)
 (defn rotate [state shape]
   (let [rotated (update state :active-shape
@@ -139,8 +158,6 @@
 ;; Thought process Note: when a shape rotates, each cell "moves" around the center-point (area-length - 1) over. (for i-block, think of middle 1's as own mini-block)
 ;; => Basically if block matrix is a square, can take the transpose of matrix and swap first and last rows
 
-
-;;;;; for below: USED RESOURCE: http://fn-code.blogspot.com/2016/04/another-tetris-clone-in-clojure.html
 
 ; translates a tetris block (f: inc for right, dec for left)
 (defn shift [state direction]
