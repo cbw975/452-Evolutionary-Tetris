@@ -35,6 +35,28 @@
 
 (def shapes [I O L R T Z S])
 
+(defn make-row
+  "Return 'num-rows' of empty rows of specified 'block's"
+  ([] (make-row world-width empty-block))
+  ([num-rows block] (vec (repeat num-rows block))))
+
+; Board = 2D vector of cells/blocks (types denoted by numbers)
+(defn make-board []
+  (make-row world-height (make-row)))                       ; empty rows up to world's height
+
+(defn start-state
+  "Makes a new-game state"
+  []
+  {:board        (make-board)
+   :score        0                                          ; score of game. starts at 0
+   ;:speed       100                                       ; how quickly before block will fall down 1
+   :cleared-rows 0                                          ; number of rows that have been cleared in game
+   :active-pos   [(rand-int (- world-width 3)) 0]           ; top-left coord of active tetris shape. randomly somewhere along the top row of world
+   :active-shape ((rand-nth (keys shapes)) shapes)})        ; shape is the current falling/active block
+;TODO: Set the active shape to be:
+    ; a) 2 separate state-properties: fall-seq and active-ind, where active-ind is the index of the shape we are using from the seq
+    ; b) call to a .... however did in project
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;   REPL/CMD-LINE VISUALIZATION + REPORTING   ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -96,37 +118,70 @@
 #_(read-cell 1 2 m) ; => 8
 #_(print (str-board m))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;   BOARD MAKING + MANIPULATION   ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defn make-row
-  "Return 'num-rows' of empty rows of specified 'block's"
-  ([] (make-row world-width empty-block))
-  ([num-rows block] (vec (repeat num-rows block))))
-
-; Board = 2D vector of cells/blocks (types denoted by numbers)
-(defn make-board []
-  (make-row world-height (make-row)))                       ; empty rows up to world's height
-
-(defn start-state
-  "Makes a new-game state"
-  []
-  {:board        (make-board)
-   :score        0                                          ; score of game. starts at 0
-   ;:speed       100                                       ; how quickly before block will fall down 1
-   :cleared-rows 0                                          ; number of rows that have been cleared in game
-   :active-pos   [(rand-int (- world-width 3)) 0]           ; top-left coord of active tetris shape. randomly somewhere along the top row of world
-   :active-shape ((rand-nth (keys shapes)) shapes)})        ; shape is the current falling/active block
-;TODO: Set the active shape to be:
-;     a) 2 separate state-properties: fall-seq and active-ind, where active-ind is the index of the shape we are using from the seq
-;     b) call to a .... however did in project
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   GAME RULES CALCULATIONS AND CHECKS   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn cell-valid?
   "checks for collisions - Returns bool for if the cell at (r,c) is un-filled and in the 'board' bounds"
   [x y board]
   (and board (< -1 x world-width) (< -1 y world-height)     ; board exists (non-nil) and the cell is within the world-width and world-height
        (not (pos? (read-cell x y board)))))                 ; the cell is non-negative
+
+(defn state-valid?
+  "Returns bool for if the 'state' with the active-block placed is valid.
+  If not, return the original state"
+  [{:keys [board active-shape active-pos] :as state}]
+  (if (place-shape active-shape active-pos active-block board) true false))
+
+(defn calc-level
+  "Calculates level from total number of `lines` cleared. Max level of 10
+  for 90+ lines."
+  [lines]
+  (cond
+    (> lines 90) 10
+    (pos? lines) (inc (quot (dec lines) 10))
+    :default 0))
+
+(defn score-lines
+  "Returns score computed based on number of 'lines' cleared at once and
+  current `level`. Better score when more lines cleared at once."
+  [lines level]
+  (let [base-score {1 30 2 100 3 300 4 1200}]
+    (* (base-score lines) (inc level))))
+
+(defn game-over [{:keys [score] :as state}]
+  ; TODO: use this function to return whatever will get sent to evolution code ??
+  score)
+
+
+(defn imbed-shape?
+  "Checks if the active-'shape' at the active-pos, '[ref-x ref-y]', in the 'board' is to be placed, meaning
+   if there are any active-blocks that touch / are adjacent to a filled-block"
+  [shape [ref-x ref-y] board]
+  ; TODO
+  )
+
+(defn get-drop-pos
+  "Get the future drop position of the given piece."
+  []
+  ; TODO
+  )
+
+; TODO??? dropped-shape-state/board function... maybe for consideration of how good a state looks, for Push (Clojush) to decide what move to make
+;         (so as not to only be able to consider the state fully when almost at bottom with almost no time before active-shape is placed) 
+;   => would go in 'BOARD TRANSFORMATIONS' section
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   BOARD TRANSFORMATIONS   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn clear-rows
+  "Returns the state with any filled rows cleared, number of cleared-rows,
+  and updated score (if cleared rows)"
+  []
+  ; TODO
+  )
 
 (defn place-block
   "Returns updated 'board' with the 'block-type' placed at cell '(x,y)', or nil if invalid board"
@@ -155,35 +210,6 @@
   ;(let [coords (shape-coords shape)]
   (let [coords-to-place (abs-shape-coords active-pos shape)]
     (place-blocks board coords-to-place block-type)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;   GAME RULE RELATED COMPUTATIONS/UPDATES   ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defn calc-level
-  "Calculates level from total number of `lines` cleared. Max level of 10
-  for 90+ lines."
-  [lines]
-  (cond
-    (> lines 90) 10
-    (pos? lines) (inc (quot (dec lines) 10))
-    :default 0))
-
-(defn score-lines
-  "Returns score computed based on number of 'lines' cleared at once and
-  current `level`. Better score when more lines cleared at once."
-  [lines level]
-  (let [base-score {1 30 2 100 3 300 4 1200}]
-    (* (base-score lines) (inc level))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;   BOARD TRANSFORMATIONS + MOVES, CHECKS   ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn state-valid?
-  "Returns bool for if the 'state' with the active-block placed is valid.
-  If not, return the original state"
-  [{:keys [board active-shape active-pos] :as state}]
-  (if (place-shape active-shape active-pos active-block board) true false))
 
 (defn rotate-cw
   "rotates the inputted 'matrix' clockwise once"
@@ -226,17 +252,4 @@
       (or :rotate-left :rl -2) (assoc state :active-shape (rotate-ccw (:active-shape state)))
       (or :rotate-right :rr 2) (assoc state :active-shape (rotate-cw (:active-shape state))))
     state))
-
-; #NOTE: to be modified, since corresponds with old structure of states
-; place figure all the way down.
-(defn drop-shape [{:keys [filled] :as state}]
-  (some 
-   #(when (not= filled (:filled %)) %)  ; TODO: EDIT THIS to be: when no active-cells are adjacent to a filled-block
-   (iterate make-move state :down)))
-; TODO: remember to check if place-able (if an active-block is adjacent to a filled-block) after making a move
-
-(defn game-over [{:keys [score] :as state}]
-  ; TODO: use this function to return whatever will get sent to evolution code ??
-  score
-  )
 
