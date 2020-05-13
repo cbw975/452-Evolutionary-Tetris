@@ -1,4 +1,4 @@
-(ns tetris452.gameboard)
+(ns tetris452.tempgameboard)
 
 (def WIDTH (atom nil))
 (def HEIGHT (atom nil))

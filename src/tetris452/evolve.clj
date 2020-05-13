@@ -1,6 +1,6 @@
 (ns tetris452.evolve
-  (:use tetris452.gameboard)
-  (:use tetris452.game)
+  (:use tetris452.tempgameboard)
+  (:use tetris452.tempgame)
   (:require [clojure.string :as string]))
 
 ;; Clojure code for a Tetris playing evolutionary algorithm

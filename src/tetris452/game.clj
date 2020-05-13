@@ -1,367 +1,194 @@
-(ns tetris452.game
-  (:use tetris452.gameboard)
-  ;(:use tetris452.core)
-  (:import
-    (javax.swing JFrame)
-    (java.awt Canvas Font Graphics Color Toolkit))
-  (:gen-class))
+(ns tetris452.game)
 
-(def get-seed (repeatedly #(rand-int 7)))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   TETRIS SHAPES + CELL/BLOCK REPRESENTATIONS   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn board-see [board]
-  (println board))
+; For storing game state + string based display to repl
+(def empty-block 0)                                         ; Empty/Unoccupied cells = zeros
+(def active-block 1)                                        ; Active/Moving cells = 1s
+(def placed-block 2)                                        ; Filled/Occupied cells = 2s
+(def world-height 20)                                       ; row 0 is at top
+(def world-width 10)                                        ; world refers to the area tetris blocks can be in
 
-(defn pos-check [pos]
-  (if (and (< pos 200) (> pos -1))
-    true
-    false))
+(def I [[0 1 0 0]
+        [0 1 0 0]
+        [0 1 0 0]
+        [0 1 0 0]])
+(def O [[1 1]
+        [1 1]])
+(def L [[0 1 0]
+        [0 1 0]
+        [0 1 1]])
+(def R [[0 1 1]
+        [0 1 0]
+        [0 1 0]])
+(def T [[0 0 0]
+        [1 1 1]
+        [0 1 0]])
+(def Z [[0 0 0]
+        [1 1 0]
+        [0 1 1]])
+(def S [[0 0 0]
+        [0 1 1]
+        [1 1 0]])
 
-(defn aggregate-height [board]
-  (loop [height-sum 0
-         height     0
-         pos        0
-         counter    0]
-    (if (>= counter 10)
-      height-sum
-      (cond
-        (and (pos-check pos)(= (nth board pos) "black"))
-        (recur
-          height-sum
-          (inc height)
-          (+ pos 10)
-          counter)
+(def shapes [I O L R T Z S])
 
-        :default
-        (recur
-          (+ height-sum (- 20 height))
-          (* height 0)
-          (+ (* pos 0) (inc counter))
-          (inc counter)
-          )))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   REPL/CMD-LINE VISUALIZATION + REPORTING   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defn str-board
+  "Returns 'board' as readable formatted string"
+  [board]
+  (apply str (mapcat #(conj % \newline ) board)))
 
-(defn cal-holes [board]
-  (loop [counter 10
-         holes 0]
-    (if (>= counter (count board))                          ;; for any size board
-      holes
-      (recur
-        (inc counter)
-        (if (and (= (nth board counter) "black")
-                 (not (= (nth board (- counter 10)) "black")))
-          (inc holes)
-          holes)))))
+; TODO: Visualization - Quil visualization
 
-(defn complete-lines [board]
-  (let [new-board (->> board
-                       (partition 10)
-                       (filter #(some #{"black"} %))
-                       (apply concat))
-        num-removed (- (count board) (count new-board))]
-    (/ num-removed 10)))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   BOARD-RELATED CONVERSIONS   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn heuristic-sum [h1 h2 h3 individual]
-  (let [weights (:genome individual)]
-    (+ (+ (* h1 (first weights))(* h2 (nth weights 1)))(- 200 (* h3 (nth weights 2))))))
+(defn read-cell
+  "Accesses the block type/value within 2D vectors (board)"
+  [x y matrix]
+  (get-in matrix [y x]))
 
-;;edit this
+; deconstruct active shape and return coordinates of its 4 active cells (1's)
+(defn shape-coords
+  "Returns the relative coordinates of active-blocks/cells (i.e. 1's) in 'matrix'"
+  [board]
+  (into [] (for [x (range world-width)
+                 y (range world-height)                     ; for each coord on the board...
+                 :when (= 1 (read-cell x y board))]         ; if it is an active block...
+             [x y])))
 
-(defn printoutstuff [results]
-  (let [max (val (apply max-key val results))
-        best (rand-nth (keys (into (hash-map) (filter #(>= (second %) max) results))))]
-    (do
-      ;;(println "this is the result: " results)
-      ;;(println "This is the best move:" best)
-      best)))
+#_(def m [[1 2 3] [4 5 1] [7 8 9] [10 1 12]])
+#_(active-coords m) ; => [[0 0] [1 3] [2 1]]
 
-;;does it choose down if they all have the same value?
-(defn calculate-move [ board block drop? individual]
-  (loop [tempBoard board
-         ;;test out printout stuff here
-         results {:left 0 :right 0 :up 0 :down 0}
-         moves '(:left :right :up :down)
-         counter 0
-         [num-removed new-board] (clear-lines board)
-         ]
-    ;(println "This is the original board:")
-    ;(println results)
-    (reset! OFFSET [0 0])
-    (reset! ROTATION nil)
-    (if (>= counter 4)
-      (do
-        (reset! OFFSET [0 0])
-        (reset! ROTATION nil)
-        (printoutstuff results)
-        )
+; ##Board handling:
+; Example board:
+; 1  2  3
+; 4  5  6
+; 7  8  9
+; 10 11 12
+#_(def m [[1 2 3] [4 5 6] [7 8 9] [10 11 12]])
+; How board is stored:
+; "x" is column #, increasing from left (0) to right
+; "y" is row #, increasing from top (0) to bottom
+; (0,0) (1,0) (2,0)
+; (0,1) (1,1) (2,1)
+; (0,2) (1,2) (2,2)
+; (0,3) (1,3) (2,3)
+#_(read-cell 1 2 m) ; => 8
+#_(print (str-board m))
 
-      (do
-        ;down is the default when they are tied
-        (case (nth moves counter)
-          :left (swap! OFFSET #(map + [-1 0] %))
-          :right (swap! OFFSET #(map + [1 0] %))
-          :up (reset! ROTATION :left)
-          :down (reset! ROTATION :right)
-          )
-        ;(print "This is the current move" (nth moves counter) ". ")
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   BOARD MAKING + MANIPULATION   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defn make-row
+  "Return 'num-rows' of empty rows of specified 'block's"
+  ([] (make-row world-width empty-block))
+  ([num-rows block] (vec (repeat num-rows block))))
 
-        ;(board-see tempBoard)
-        ;;(update board)
-        ;(board-see (update-board new-board (transform board block drop?)))
+; Board = 2D vector of cells/blocks (types denoted by numbers)
+(defn make-board []
+  (make-row world-height (make-row)))                       ; empty rows up to world's height
 
+(defn start-state
+  "Makes a new-game state"
+  []
+  {:board (make-board)
+   :score        0                                          ; score of game. starts at 0
+   ;:speed       100                                       ; how quickly before block will fall down 1
+   :active-pos   [(rand-int (- world-width 3)) 0]           ; top-left coord of active tetris shape. randomly somewhere along the top row of world
+   :active-shape ((rand-nth (keys shapes)) shapes)})        ; shape is the current falling/active block
+;TODO: Set the active shape to be:
+;     a) 2 separate state-properties: fall-seq and active-ind, where active-ind is the index of the shape we are using from the seq
+;     b) call to a .... however did in project
 
-        (let [t-board (update-board new-board (transform board block drop?))]
-          ;(assoc results (nth moves counter) (heuristic-sum (cal-holes t-board) (/ num-removed 10) (aggregate-height t-board) individual))
-          ;println "This is the sum "(heuristic-sum (cal-holes t-board)(/ num-removed 10) (aggregate-height t-board) individual))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   PREVIOUS CODE TO BE MODIFIED/REPLACED   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-          (recur
-            board
-            (assoc results (nth moves counter) (heuristic-sum (cal-holes t-board) (/ num-removed 10) (aggregate-height t-board) individual))
-            moves
-            (inc counter)
-            [num-removed new-board]
-            ))
-        ))))
+(defn transpose [matrix]
+  (into []                                                  ;make transposed shape structure a vector of rows
+        (for [row (apply map list matrix)]                  ;transposes matrix, but structure ends up as list of lists.
+          (into [] row))))                                  ;make each row a vector
 
+; swap the items at i1 and i2 in a seq (i.e. two rows the world, where items are rows and seq is world of rows)
+(defn swap [items i1 i2]
+  (assoc items i1 (items i2) i2 (items i1)))                ; (assoc seq i1 item1 i2 item2) replaces item1 with item2 at index i2 and vice versa
 
 
+; check if active-block intersects with filled/out-of-bounds blocks
+(defn valid? [{:keys [filled] :as state}]
+  ; for every coordinate in the current active shape (shape-cells), check if within world boundaries and not in the filled cells
+  (every? (fn [[x y :as coord]]
+            (and ((complement filled) coord)
+                 (<= 0 x (- world-width 1)) (< y (- world-height 1))))
+          (shape-coords state)))
+
+; rotates a tetris block (clockwise)
+(defn rotate [state shape]
+  (let [rotated (update state :active-shape
+                        (swap (transpose shape) 0 (dec (count shape))))] ;transpose and switch first and last rows
+    (if (valid? rotated) rotated state)))
+;; Thought process Note: when a shape rotates, each cell "moves" around the center-point (area-length - 1) over. (for i-block, think of middle 1's as own mini-block)
+;; => Basically if block matrix is a square, can take the transpose of matrix and swap first and last rows
 
 
-;;;;Controls;;;;
+;;;;; for below: USED RESOURCE: http://fn-code.blogspot.com/2016/04/another-tetris-clone-in-clojure.html
 
-;(defn rand-move []
-;(rand-nth '(:left :right :up :down)))
-(defn rand-move []
-  (rand-nth '(:left :left :left :left)))
+; translates a tetris block (f: inc for right, dec for left)
+(defn shift [state direction]
+  (let [shifted (update-in state [:active-pos 0] direction)] ; next (or shifted) state has shifted active-pos
+    (if (valid? shifted) shifted state)))
 
-(defn finish-game [frame score board]
-  (doto frame
-    (.setVisible false)
-    (.dispose))
-  (println {:score score
-            :board board})
-  [score board])
-(defn finish-game2 [ score board]
-  (println {:score score
-            :board board})
-  [score board])
+; when an entire row is filled, the row clears and add 10 to the score
+(defn clear-row [{:keys [filled] :as state} row]
+  (if (every? filled (for [i (range world-width)] [i row])) ; if every cell is filled in a row, clear the row
+    (-> state
+        (update :score + 10)                                ; 10 points for every cleared row
+        (update :time-limit dec)                            ; speed of blocks
+        (assoc :filled                                      ; the blocks in the row are no longer filled
+               (set (for [[i j] filled :when (not= j row)]  ; transfer/keep all the filled cells that were not in the cleared-row
+                      (if (< j row) [i (inc j)] [i j])))))  ; shift down all the rows above cleared-row
+    state))
 
-;;;;;;;UI;;;;;;;;;
-(def colors {"black"  Color/black
-             "blue"   Color/blue
-             "green"  Color/green
-             "yellow" Color/yellow
-             "orange" Color/orange
-             "pink"   Color/pink
-             "red"    Color/red})
+; shift cell down
+(defn down [state]
+  (let [shifted (update-in state [:active-pos 1] inc)]      ; y-coord of active block shifted down 1
+    (if (valid? shifted)
+      shifted
+      (let [filled-coord (shape-coords state)]
+        (-> state
+            (update :filled into filled-coord)              ; place the fallen cells into the world
+            (update :score + 1)                             ; add 1 to score for every placed block
+            (#(reduce clear-row % (map second filled-coord)))  ; clear any rows that got filled by placing the shape
+            (into {:active-shape ((rand-nth (keys shapes)) shapes) ; generate new random active shape
+                   :active-pos   [(rand-int (- world-width 3)) 0]}) ; have active shape at random spot at top of world
+            )))))
 
-(defn draw [#^Canvas canvas draw-fn]
-  (let [buffer (.getBufferStrategy canvas)
-        g (.getDrawGraphics buffer)]
-    (try
-      (draw-fn g)
+; place figure all the way down.
+(defn place-block [{:keys [filled] :as state}]
+  (some #(when (not= filled (:filled %)) %)
+        (iterate down state)))
 
-      (finally (.dispose g)))
-    (if (not (.contentsLost buffer))
-      (. buffer show))
-    (.. Toolkit (getDefaultToolkit) (sync))))
+(defn game-over [{:keys [score] :as state}]
+  ; TODO: use this function to return whatever will get sent to evolution code ??
+  score
+  )
 
-(defn draw-square [x y color #^Graphics g]
-  (let [width (/ @WIDTH COLS)
-        height (/ @HEIGHT ROWS)
-        xpos (* x width)
-        ypos (* y width)]
-    (doto g
-      (.setColor (get colors color))
-      (.fillRect xpos ypos width height)
-      (.setColor Color/black)
-      (.drawRect xpos ypos width height))))
-
-(defn draw-text [#^Graphics g color text x y]
-  (doto g
-    (.setColor color)
-    (.drawString text x y)))
-
-(defn draw-game-over [score]
-  (fn [#^Graphics g]
-    (doto g
-      (.setColor (new Color (float 0) (float 0) (float 0) (float 0.7)))
-      (.fillRect 0 0 @WIDTH @HEIGHT))
-    (draw-text g Color/red "GAME OVER" (- (/ @WIDTH 2) 50) (/ @HEIGHT 2))
-    (draw-text g Color/red (str "Final Score: " score) (- (/ @WIDTH 2) 55) (+ 15 (/ @HEIGHT 2)))))
-
-(defn draw-board [board block score]
-  (fn [#^Graphics g]
-    (doto g
-      (.setColor Color/BLACK)
-      (.fillRect 0 0 @WIDTH @HEIGHT))
-
-    (doseq [square (range (count board))]
-      (let [[x y] (pos-to-xy square)]
-        (draw-square x y (get board square) g)))
-
-    (doseq [[x y] (:shape block)]
-      (draw-square x y (:color block) g))
-
-    (draw-text g Color/green (str "score: " score) 20 25)))
-
-(defn cal-holes [board]
-  (loop [counter 10
-         holes 0]
-    (if (>= counter (count board))                          ;; for any size board
-      holes
-      (recur
-        (inc counter)
-        (if (and (= (nth board counter) "black")
-                 (not (= (nth board (- counter 10)) "black")))
-          (inc holes)
-          holes)))))
-
-;;Make this main method take in genome as a paramater, and then call a function that decides a move based on the genome and state of the board
-(defn play-game [toDisplay individual]
-  (reset! WIDTH 300)
-  (reset! HEIGHT 600)
-  (if toDisplay (let [frame (JFrame. "Tetris Genetic Programming")
-                         canvas (Canvas.)]
-                     (doto frame
-                       (.setSize @WIDTH (+ (/ @HEIGHT ROWS) @HEIGHT))
-                       (.setDefaultCloseOperation JFrame/EXIT_ON_CLOSE)
-                       (.setResizable false)
-                       (.add canvas)
-                       (.setVisible true)
-                       )
-
-                     (doto canvas
-                       (.createBufferStrategy 2)
-
-                       (.setVisible true)
-                       (.requestFocus))
-
-                     ;;game loop
-                     (loop [score 0
-                            counter 0
-                            ;seed get-seed
-                            seed (:seed individual)
-                            board (get-board)
-                            block (get-block (nth seed counter))
-                            old-time (System/currentTimeMillis)]
-                       (reset! OFFSET [0 0])
-                       (reset! ROTATION nil)
-                       (Thread/sleep 5)
-
-
-                       ;(calculate-move board block)
-                       (draw canvas (draw-board board block score))
-
-                       (let [cur-time (System/currentTimeMillis)
-                             new-time (long (if (> (- cur-time old-time) 25) ;;changes game tick
-                                              cur-time
-                                              old-time))
-                             drop? (> new-time old-time)
-                             [num-removed new-board] (clear-lines board)]
-
-                         (case (calculate-move board block drop? individual)
-                           :left (swap! OFFSET #(map + [-1 0] %))
-                           :right (swap! OFFSET #(map + [1 0] %))
-                           :up (reset! ROTATION :left)
-                           :down (reset! ROTATION :right)
-                           )
-
-                         (cond
-                           (game-over? board)
-
-                           (finish-game frame score board)
-
-                           ;; (draw canvas (draw-game-over score))
-
-
-                           (collides? board (:shape block))
-
-
-                           ;;recursion once a block is placed
-                           (do
-                             ;(println "updated")
-                             (recur
-                               (inc score)
-                               (inc counter)
-                               seed
-                               (update-board board block)
-                               (get-block (nth seed (inc counter)))
-                               new-time))
-                           ;; this is the default recursion when the block is not colliding
-                           :default
-                           ;;must have the same number of variables to proceed
-                           (do
-                             ;(println "transformed")
-                             (recur
-                               (+ score (* num-removed num-removed))
-                               counter
-                               seed
-                               new-board
-                               (transform board block drop?)
-                               new-time)
-                             )
-                           )))))
-  (if (not toDisplay)
-    (loop [score 0
-           counter 0
-           ;seed get-seed
-           seed (:seed individual)
-           board (get-board)
-           block (get-block (nth seed counter))
-           old-time (System/currentTimeMillis)]
-      (reset! OFFSET [0 0])
-      (reset! ROTATION nil)
-      (Thread/sleep 0)
-      ;;random move here for now but use the calculate-move function here later; is this where the random move should be?
-      (case (rand-move)
-        :left nil                                           ;(swap! OFFSET #(map + [-1 0] %))
-        :right nil                                          ;(swap! OFFSET #(map + [1 0] %))
-        :up (reset! ROTATION :left)
-        :down (reset! ROTATION :right)
-        )
-
-
-      (let [cur-time (System/currentTimeMillis)
-            new-time (long (if (> (- cur-time old-time) 5) ;;changes game tick
-                             cur-time
-                             old-time))
-            drop? (> new-time old-time)
-
-            ;;Do a random move for this tick
-
-
-            [num-removed new-board] (clear-lines board)]
-        (case (calculate-move board block drop? individual)
-          :left (swap! OFFSET #(map + [-1 0] %))
-          :right (swap! OFFSET #(map + [1 0] %))
-          :up (reset! ROTATION :left)
-          :down (reset! ROTATION :right)
-          )
-        (cond
-          (game-over? board)
-          (finish-game2 score board)
-          ;; (draw canvas (draw-game-over score))
-
-          (collides? board (:shape block))
-
-          ;;recursion once a block is placed
-          (recur
-            (inc score)
-            (inc counter)
-            seed
-            (update-board board block)
-            (get-block (nth seed (inc counter)))
-            new-time)
-          ;; this is the default recursion when the block is not colliding
-          :default
-          ;;must have the same number of variables to proceed
-          (recur
-            (+ score (* num-removed num-removed))
-            counter
-            seed
-            new-board
-            (transform board block drop?)
-            new-time))))))
-;(-main)
-
+; Updates world at each time step; called by user interface layer for each game time step.
+(defn step-forward [{:keys [FPS filled time-limit] :as state}]
+  (cond->                                                   ; conditional threading at the new game step
+    (update state :FPS inc)
+    (zero? (mod FPS (max time-limit 1)))                           ; if the Frames per Second (GUI code) modded with the current FPS is zero
+    down                                                    ; the shape downs.
+    (some zero? (map second filled))                        ; if some of the y coord of any filled block is zero
+    ((game-over state)
+     (into (dissoc (start-state) :score)) )                 ; reset the game but maintain the score
+    ))
