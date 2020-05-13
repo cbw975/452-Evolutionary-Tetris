@@ -61,11 +61,11 @@
   [board]
   (into [] (for [x (range world-width)
                  y (range world-height)                     ; for each coord on the board...
-                 :when (= 1 (read-cell x y board))]         ; if it is an active block...
+                 :when (= active-block (read-cell x y board))]         ; if it is an active block...
              [x y])))
 
 #_(def m [[1 2 3] [4 5 1] [7 8 9] [10 1 12]])
-#_(active-coords m) ; => [[0 0] [1 3] [2 1]]
+#_(shape-coords m) ; => [[0 0] [1 3] [2 1]]
 
 ; ##Board handling:
 ; Example board:
@@ -116,25 +116,28 @@
        (not (pos? (read-cell x y board)))))
 
 (defn place-block
-  [board x y block-type]
+  "Returns updated 'board' with the 'block-type' placed at cell '(x,y)', or nil if invalid board"
+  [board [x y] block-type]
   (when (cell-valid? x y board)
     (assoc-in board [y x] block-type)))
 
 (defn place-blocks
-  [board x y coords block-type]
-  (if (count coords)                                        ; if there are (still) blocks to be placed, place them
+  "Returns updated 'board' with blocks of type 'block-type' at cells in the 'coords' list, or 'nil' if invalid board"
+  [board [x y] coords block-type]
+  (if (count coords)            ; if there are (still) blocks to be placed, place them
     (let [curr-rel-coord (first coords)
           rest-coords (rest coords)
           curr-coord (map + curr-rel-coord [x y])
-          updated-board (place-block board curr-coord block-type)] ; 'nil' if invalid board
-      (recur updated-board x y rest-coords block-type))
+          updated-board (place-block board curr-coord block-type)]    ; 'nil' if invalid board
+      (recur updated-board [x y] rest-coords block-type))
     ; else:
-    board                                                   ; return the updated board with all the blocks placed. If invalid, will be nil
+    board         ; return the updated board with all the blocks placed. If invalid, will be nil
     ))
 
 (defn place-shape
+  "Returns updated 'board' with 'shape' placed at/relative to the 'active-pos' (coords: [x y]), or nil if invalid board"
   [shape active-pos block-type board]
-  (let [coords (active-coords shape)]
+  (let [coords (shape-coords shape)]
     (place-blocks board active-pos coords block-type)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -190,7 +193,7 @@
             )))))
 
 ; place figure all the way down.
-(defn place-block [{:keys [filled] :as state}]
+(defn drop-shape [{:keys [filled] :as state}]
   (some #(when (not= filled (:filled %)) %)
         (iterate down state)))
 
