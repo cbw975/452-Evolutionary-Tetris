@@ -179,61 +179,61 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;   BOARD TRANSFORMATIONS + MOVES, CHECKS   ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn state-valid?
+  "Returns bool for if the 'state' with the active-block placed is valid.
+  If not, return the original state"
+  [{:keys [board active-shape active-pos] :as state}]
+  (if (place-shape active-shape active-pos active-block board) true false))
 
-(defn rotate
-  "Applies rotation (cw or ccw) to given 'matrix' (active-block) if valid (no collisions)
-  when positioned relative to absolution position denoted by '(x,y)'"
-  [matrix [x y] board]
-  ; TODO
-  )
+(defn rotate-cw
+  "rotates the inputted 'matrix' clockwise once"
+  [matrix]
+  (let [mtx (reverse matrix)]
+    (apply mapv #(into [] %&) mtx)))
 
+(defn rotate-ccw
+  "rotates the inputted 'matrix' counter-clockwise once"
+  [matrix]
+  (into [] (reverse (apply mapv #(into [] %&) matrix))))
 
+(defn block-fits?
+  "Checks if the given coordinates '(x,y)' fit after translation '(dx,dy)' on the 'board'"
+  [[x y] dx dy board]
+  (let [next-x (+ x dx)
+        next-y (+ y dy)]
+    (cell-valid? next-x next-y board)))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;   PREVIOUS CODE TO BE MODIFIED/REPLACED   ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn move-valid?
+  "Checks if 'translation' of 'shape' positioned at 'pos' will be valid, so without colliding in the 'board'
+   translations: {-2 = rotate left/ccw, -1 = shift left, 0 = shift down/fall, 1 = shift right, 2 = rotate right/cw"
+  [shape [ref-x ref-y] translation board]
+  (case translation
+    (or :rotate-left :rl -2) (every? #(block-fits? % 0 0 board) (abs-shape-coords [ref-x ref-y] (rotate-ccw shape)))
+    (or :left -1) (every? #(block-fits? % -1 0 board) (abs-shape-coords [ref-x ref-y] shape))
+    (or :fall :down 0) (every? #(block-fits? % 0 1 board) (abs-shape-coords [ref-x ref-y] shape))
+    (or :right 1) (every? #(block-fits? % 1 0 board) (abs-shape-coords [ref-x ref-y] shape))
+    (or :rotate-right :rr 2) (every? #(block-fits? % 0 0 board) (abs-shape-coords [ref-x ref-y] (rotate-ccw shape)))))
 
-(defn transpose [matrix]
-  (into []                                                  ;make transposed shape structure a vector of rows
-        (for [row (apply map list matrix)]                  ;transposes matrix, but structure ends up as list of lists.
-          (into [] row))))                                  ;make each row a vector
+(defn make-move
+  "Returns the transformed game state after the 'direction' move is made if it is valid, otherwise returns the original 'state'
+   directions: {-1 = shift left, 0 = shift down/fall, 1 = shift right}"
+  [state direction]
+  (if (move-valid? (:active-shape state) (:active-pos state) direction (:board state))
+    (case direction
+      (or :left -1) (update-in state [:active-pos 0] dec)
+      (or :down 0) (update-in state [:active-pos 1] inc)
+      (or :right 1) (update-in state [:active-pos 0] inc)
+      (or :rotate-left :rl -2) (assoc state :active-shape (rotate-ccw (:active-shape state)))
+      (or :rotate-right :rr 2) (assoc state :active-shape (rotate-cw (:active-shape state))))
+    state))
 
-; swap the items at i1 and i2 in a seq (i.e. two rows the world, where items are rows and seq is world of rows)
-(defn swap [items i1 i2]
-  (assoc items i1 (items i2) i2 (items i1)))                ; (assoc seq i1 item1 i2 item2) replaces item1 with item2 at index i2 and vice versa
-
-; rotates a tetris block (clockwise)
-(defn rotate [state shape]
-  (let [rotated (update state :active-shape
-                        (swap (transpose shape) 0 (dec (count shape))))] ;transpose and switch first and last rows
-    (if (valid? rotated) rotated state)))
-;; Thought process Note: when a shape rotates, each cell "moves" around the center-point (area-length - 1) over. (for i-block, think of middle 1's as own mini-block)
-;; => Basically if block matrix is a square, can take the transpose of matrix and swap first and last rows
-
-
-; translates a tetris block (f: inc for right, dec for left)
-(defn shift [state direction]
-  (let [shifted (update-in state [:active-pos 0] direction)] ; next (or shifted) state has shifted active-pos
-    (if (valid? shifted) shifted state)))
-
-; shift cell down
-(defn down [state]
-  (let [shifted (update-in state [:active-pos 1] inc)]      ; y-coord of active block shifted down 1
-    (if (valid? shifted)
-      shifted
-      (let [filled-coord (shape-coords state)]
-        (-> state
-            (update :filled into filled-coord)              ; place the fallen cells into the world
-            (update :score + 1)                             ; add 1 to score for every placed block
-            (#(reduce clear-row % (map second filled-coord))) ; clear any rows that got filled by placing the shape
-            (into {:active-shape ((rand-nth (keys shapes)) shapes) ; generate new random active shape
-                   :active-pos   [(rand-int (- world-width 3)) 0]}) ; have active shape at random spot at top of world
-            )))))
-
+; #NOTE: to be modified, since corresponds with old structure of states
 ; place figure all the way down.
 (defn drop-shape [{:keys [filled] :as state}]
-  (some #(when (not= filled (:filled %)) %)
-        (iterate down state)))
+  (some 
+   #(when (not= filled (:filled %)) %)  ; TODO: EDIT THIS to be: when no active-cells are adjacent to a filled-block
+   (iterate make-move state :down)))
+; TODO: remember to check if place-able (if an active-block is adjacent to a filled-block) after making a move
 
 (defn game-over [{:keys [score] :as state}]
   ; TODO: use this function to return whatever will get sent to evolution code ??
