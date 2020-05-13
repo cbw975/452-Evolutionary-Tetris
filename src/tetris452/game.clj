@@ -56,13 +56,25 @@
   (get-in matrix [y x]))
 
 ; deconstruct active shape and return coordinates of its 4 active cells (1's)
+; TODO NOTE: this might not work if I keep the active-shape not imbedded in the board until it it placed... depends on visualization
 (defn shape-coords
   "Returns the relative coordinates of active-blocks/cells (i.e. 1's) in 'matrix'"
-  [board]
+  [matrix]
   (into [] (for [x (range world-width)
                  y (range world-height)                     ; for each coord on the board...
-                 :when (= active-block (read-cell x y board))]         ; if it is an active block...
+                 :when (= active-block (read-cell x y matrix))] ; if it is an active block...
              [x y])))
+
+(defn abs-shape-coords
+  "Returns the absolute coordinates (on 'board') of the active cells,
+  given that the active-'shape' starts at '(ref-x,ref-y)' or :active-pos"
+  [[ref-x ref-y] shape]
+  (let [rows (count shape)
+        cols (count (first shape))]
+    (for [x (range cols) y (range rows)
+          :when (= active-block (read-cell x y shape))]
+      [(+ x ref-x) (+ ref-y y)]))
+  )
 
 #_(def m [[1 2 3] [4 5 1] [7 8 9] [10 1 12]])
 #_(shape-coords m) ; => [[0 0] [1 3] [2 1]]
@@ -113,8 +125,8 @@
 (defn cell-valid?
   "checks for collisions - Returns bool for if the cell at (r,c) is un-filled and in the 'board' bounds"
   [x y board]
-  (and board (< -1 x world-width) (< -1 y world-height)     ; board exists (non-nil) and the cell is non-negative and within the world-width and world-height
-       (not (pos? (read-cell x y board)))))
+  (and board (< -1 x world-width) (< -1 y world-height)     ; board exists (non-nil) and the cell is within the world-width and world-height
+       (not (pos? (read-cell x y board)))))                 ; the cell is non-negative
 
 (defn place-block
   "Returns updated 'board' with the 'block-type' placed at cell '(x,y)', or nil if invalid board"
@@ -124,27 +136,29 @@
 
 (defn place-blocks
   "Returns updated 'board' with blocks of type 'block-type' at cells in the 'coords' list, or 'nil' if invalid board"
-  [board [x y] coords block-type]
-  (if (count coords)            ; if there are (still) blocks to be placed, place them
-    (let [curr-rel-coord (first coords)
+  [board coords block-type]
+  (if (count coords)                                        ; if there are (still) blocks to be placed, place them
+    (let [curr-coord (first coords)
           rest-coords (rest coords)
-          curr-coord (map + curr-rel-coord [x y])
-          updated-board (place-block board curr-coord block-type)]    ; 'nil' if invalid board
-      (recur updated-board [x y] rest-coords block-type))
+          ;curr-coord (map + curr-coord [x y])
+          updated-board (place-block board curr-coord block-type)] ; 'nil' if invalid board
+      (recur updated-board rest-coords block-type))
     ; else:
-    board         ; return the updated board with all the blocks placed. If invalid, will be nil
+    board                                                   ; return the updated board with all the blocks placed. If invalid, will be nil
     ))
+; NOTE: When in game loop, place the active-block when applicable (touches bottom or a filled-block),
+;       but not in the actual state :board, (so use let to keep it local)... b/c have active pos... so don't need it to be constantly in board
 
 (defn place-shape
   "Returns updated 'board' with 'shape' placed at/relative to the 'active-pos' (coords: [x y]), or nil if invalid board"
   [shape active-pos block-type board]
-  (let [coords (shape-coords shape)]
-    (place-blocks board active-pos coords block-type)))
+  ;(let [coords (shape-coords shape)]
+  (let [coords-to-place (abs-shape-coords active-pos shape)]
+    (place-blocks board coords-to-place block-type)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;   GAME RULE RELATED COMPUTATIONS/UPDATES   ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 
 (defn calc-level
   "Calculates level from total number of `lines` cleared. Max level of 10
@@ -162,16 +176,17 @@
   (let [base-score {1 30 2 100 3 300 4 1200}]
     (* (base-score lines) (inc level))))
 
-; when an entire row is filled, the row clears and add 10 to the score
-(defn clear-row [{:keys [filled] :as state} row]
-  (if (every? filled (for [i (range world-width)] [i row])) ; if every cell is filled in a row, clear the row
-    (-> state
-        (update :score + 10)                                ; 10 points for every cleared row
-        (update :time-limit dec)                            ; speed of blocks
-        (assoc :filled                                      ; the blocks in the row are no longer filled
-               (set (for [[i j] filled :when (not= j row)]  ; transfer/keep all the filled cells that were not in the cleared-row
-                      (if (< j row) [i (inc j)] [i j])))))  ; shift down all the rows above cleared-row
-    state))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   BOARD TRANSFORMATIONS + MOVES, CHECKS   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn rotate
+  "Applies rotation (cw or ccw) to given 'matrix' (active-block) if valid (no collisions)
+  when positioned relative to absolution position denoted by '(x,y)'"
+  [matrix [x y] board]
+  ; TODO
+  )
+
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -210,7 +225,7 @@
         (-> state
             (update :filled into filled-coord)              ; place the fallen cells into the world
             (update :score + 1)                             ; add 1 to score for every placed block
-            (#(reduce clear-row % (map second filled-coord)))  ; clear any rows that got filled by placing the shape
+            (#(reduce clear-row % (map second filled-coord))) ; clear any rows that got filled by placing the shape
             (into {:active-shape ((rand-nth (keys shapes)) shapes) ; generate new random active shape
                    :active-pos   [(rand-int (- world-width 3)) 0]}) ; have active shape at random spot at top of world
             )))))
@@ -225,13 +240,3 @@
   score
   )
 
-; Updates world at each time step; called by user interface layer for each game time step.
-(defn step-forward [{:keys [FPS filled time-limit] :as state}]
-  (cond->                                                   ; conditional threading at the new game step
-    (update state :FPS inc)
-    (zero? (mod FPS (max time-limit 1)))                           ; if the Frames per Second (GUI code) modded with the current FPS is zero
-    down                                                    ; the shape downs.
-    (some zero? (map second filled))                        ; if some of the y coord of any filled block is zero
-    ((game-over state)
-     (into (dissoc (start-state) :score)) )                 ; reset the game but maintain the score
-    ))
