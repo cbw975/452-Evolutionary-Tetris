@@ -100,9 +100,10 @@
 (defn start-state
   "Makes a new-game state"
   []
-  {:board (make-board)
+  {:board        (make-board)
    :score        0                                          ; score of game. starts at 0
    ;:speed       100                                       ; how quickly before block will fall down 1
+   :cleared-rows 0                                          ; number of rows that have been cleared in game
    :active-pos   [(rand-int (- world-width 3)) 0]           ; top-left coord of active tetris shape. randomly somewhere along the top row of world
    :active-shape ((rand-nth (keys shapes)) shapes)})        ; shape is the current falling/active block
 ;TODO: Set the active shape to be:
@@ -140,6 +141,39 @@
   (let [coords (shape-coords shape)]
     (place-blocks board active-pos coords block-type)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   GAME RULE RELATED COMPUTATIONS/UPDATES   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+(defn calc-level
+  "Calculates level from total number of `lines` cleared. Max level of 10
+  for 90+ lines."
+  [lines]
+  (cond
+    (> lines 90) 10
+    (pos? lines) (inc (quot (dec lines) 10))
+    :default 0))
+
+(defn score-lines
+  "Returns score computed based on number of 'lines' cleared at once and
+  current `level`. Better score when more lines cleared at once."
+  [lines level]
+  (let [base-score {1 30 2 100 3 300 4 1200}]
+    (* (base-score lines) (inc level))))
+
+; when an entire row is filled, the row clears and add 10 to the score
+(defn clear-row [{:keys [filled] :as state} row]
+  (if (every? filled (for [i (range world-width)] [i row])) ; if every cell is filled in a row, clear the row
+    (-> state
+        (update :score + 10)                                ; 10 points for every cleared row
+        (update :time-limit dec)                            ; speed of blocks
+        (assoc :filled                                      ; the blocks in the row are no longer filled
+               (set (for [[i j] filled :when (not= j row)]  ; transfer/keep all the filled cells that were not in the cleared-row
+                      (if (< j row) [i (inc j)] [i j])))))  ; shift down all the rows above cleared-row
+    state))
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;   PREVIOUS CODE TO BE MODIFIED/REPLACED   ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -166,17 +200,6 @@
 (defn shift [state direction]
   (let [shifted (update-in state [:active-pos 0] direction)] ; next (or shifted) state has shifted active-pos
     (if (valid? shifted) shifted state)))
-
-; when an entire row is filled, the row clears and add 10 to the score
-(defn clear-row [{:keys [filled] :as state} row]
-  (if (every? filled (for [i (range world-width)] [i row])) ; if every cell is filled in a row, clear the row
-    (-> state
-        (update :score + 10)                                ; 10 points for every cleared row
-        (update :time-limit dec)                            ; speed of blocks
-        (assoc :filled                                      ; the blocks in the row are no longer filled
-               (set (for [[i j] filled :when (not= j row)]  ; transfer/keep all the filled cells that were not in the cleared-row
-                      (if (< j row) [i (inc j)] [i j])))))  ; shift down all the rows above cleared-row
-    state))
 
 ; shift cell down
 (defn down [state]
