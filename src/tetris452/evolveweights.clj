@@ -1,6 +1,6 @@
-(ns tetris452.evolve
-  (:use tetris452.tempgameboard)
-  (:use tetris452.tempgame)
+(ns tetris452.evolveweights
+  (:refer tetris452.tempgameboard)
+  (:refer tetris452.tempgame)
   (:require [clojure.string :as string]))
 
 ;; Clojure code for a Tetris playing evolutionary algorithm
@@ -9,7 +9,7 @@
 ;; - relative "weight" (-10 to 10) for each feature determines in what way and how that feature influences move-choices when playing
 ;; - WEIGHT EVOLUTION - features are given, weights are evolved
 
-(def features [:numHoleTiles :bumpiness :height])
+(def features [:numHoleTiles :bumpiness :height :bumpiness])
 
 (defn dict-features-weights
   "Returns a dictionary with ':feature weight' 'key value' pairs"
@@ -19,7 +19,7 @@
 (defn rand-weight                                           ; used for setting random weights in gen 0 randomly generated individuals
   "Returns random float value b/w -10 and 10"
   []
-  (- (rand 22) 10))
+  (- (rand 202) 100))
 
 (defn new-individual
   "Returns a new, random individual."
@@ -27,7 +27,7 @@
   {:state  (get-board)                                      ; (mygame/start-state)
    :score  0
    :seed   0
-   :genome [(rand-weight) (rand-weight) (rand-weight)]})    ; genome = weights (floats [-10,10) in order of defined features)
+   :genome [(rand-weight) (rand-weight) (rand-weight) (rand-weight)]}) ; genome = weights (floats [-10,10) in order of defined features)
 
 (defn make-population
   "Returns a population of population-size randomly weighted individuals"
@@ -78,8 +78,8 @@
   and if mutated, it is inc/dec by a small amount (mutation-range)"
   [genome mutation-rate mutation-range]
   (for [gene genome]                                        ; For each gene,
-    (if (> (rand) mutation-rate)                            ; 15% chance of mutating,
-      gene                                                  ; 85 % chance not changed
+    (if (> (rand) mutation-rate)                            ; i.e. 15% chance of mutating,
+      gene                                                  ; i.e 85 % chance not changed
       (if (> (rand) 0.5)                                    ; For mutations that do occur, 50%/50% chance will decrease/increase by a random float between [1,3)
         (max -10 (- gene (+ (rand mutation-range) (/ mutation-range 2))))
         (min 10 (+ gene (+ (rand mutation-range) (/ mutation-range 2))))))))
@@ -102,7 +102,7 @@
   of a parent selected from the given population."
   [population]
   (let [individual (select population)
-        new-genome (mutate (:genome individual) 0.15 2)
+        new-genome (mutate (:genome individual) 0.20 10)
         new-individual {:state  (get-board)                 ;empty board       :state (mygame/start-state)
                         :score  0
                         :seed   (:seed individual)
@@ -152,12 +152,50 @@
 
 (def get-seed1 (repeatedly #(rand-int 7)))
 
+(def get-seed2 (repeatedly #(rand-int 7)))
+
 (defn in?
   "Returns true if coll contains item"
   [coll item]
   (some #(= item %) coll))
 
-;(def baseline-seed get-seed1)
+#_(defn evolve-tetris-with-baseline-seed
+    "Runs an evolutionary algorithm to play tetris (strategies genome). Runs for a specified number of generations.
+    Optionally, can record certain generations, specified in a seq (i.e. vector) - Note: first generation is generation 1"
+    [population-size generations displayGen recordGen]
+    (loop [population (make-population population-size)     ; at generation 0, create population with random weights (for given possible strategies)
+           base-seed get-seed2
+           generation 0]                                    ; loop through each generation...
+      (report-generation generation population "BASELINE")  ; Report on each generation
+      ; NOTE: the above corresponds to whichever seed-playing population is with the last "let"
+      (let [seed get-seed1
+            pop (if (contains? displayGen generation) (score population seed true) (score population seed false))
+            base-pop (score population base-seed false)]
+
+        (do
+          ; GENERATIONAL SEED (same falling block seq within a generation, but different between generations)
+          (let [population pop]
+            (if (or (.contains recordGen generation)        ; If this generation is speicfied to be recorded...
+                    (> (:score (best population)) 400))     ; ... or score is above threshold...
+              (record-best generation population (str "gen-seed_pop" population-size "_"))
+              ; TODO: Insert option to video record the game being played --> call play-game with this "best" indivdual (weights and seed)
+              )
+            (if (>= generation generations)
+              (println "\nindividual on gen-seed " (individual-info generation (best population)))))
+
+          ; BASELINE SEED (same falling block seq for every generation)
+          (let [population base-pop]
+            (if (or (.contains recordGen generation)        ; If this generation is speicfied to be recorded...
+                    (> (:score (best population)) 400))     ; ... or score is above threshold...
+              (record-best generation population (str "base-seed_pop" population-size "_"))
+              ; TODO: Insert option to video record the game being played --> call play-game with this "best" indivdual (weights and seed)
+              )
+            (if (>= generation generations)
+              (println "\nindividual on base-seed " (individual-info generation (best population))))
+            (recur (conj (repeatedly (dec population-size) #(make-child population)) ; make a child, have it play game, put it in the population
+                         (best population))
+                   base-seed
+                   (inc generation)))))))
 
 (defn evolve-tetris
   "Runs an evolutionary algorithm to play tetris (strategies genome).
@@ -167,52 +205,38 @@
   (loop [population (make-population population-size)       ; at generation 0, create population with random weights (for given possible strategies)
          generation 0]                                      ; loop through each generation...
     (report-generation generation population)               ; Report on each generation
-    ;(print "\nIndividuals (and child until end):\n")        ; includes child until last generation
-    ;(for [individual population] (print "\t" (report-individual generation individual)))
     (let [seed get-seed1
-          ;base-seed-population population (score population baseline-seed false)
-          population (score population seed false)
-          ;(cond (contains? displayGen generation) (score population seed true)
-          ;            :else (score population seed false))
-          ]
-
+          population (if (contains? displayGen generation)
+                       (score population seed true)
+                       (score population seed false))]
       (if (or (.contains recordGen generation)              ; If this generation is speicfied to be recorded...
-              (> (:score (best population)) 400))           ; ... or score is above threshold...
-        (record-best generation population (str "pop" population-size "_") )                 ; ... record it
+              (> (:score (best population)) 500))           ; ... or score is above threshold...
+        (record-best generation population (str "pop" population-size "_"))
         ; TODO: Insert option to video record the game being played --> call play-game with this "best" indivdual (weights and seed)
         )
-
-      ;BASELINE-SEED POPULATION:
-      ;(if (or (.contains recordGen generation)              ; If this generation is speicfied to be recorded...
-      ;              (> (:score (best base-seed-population)) 400))           ; ... or score is above threshold...
-      ;        (record-best generation base-seed-population (str "BASE_pop" population-size "_"))                 ; ... record it
-      ;        ; TODO: Insert option to video record the game being played --> call play-game with this "best" indivdual (weights and seed)
-      ;        )
-
       (if (>= generation generations)
-        (print (individual-info generation (best population)))
+        (println (individual-info generation (best population)))
         (recur (conj (repeatedly (dec population-size) #(make-child population)) ; make a child, have it play game, put it in the population
                      (best population))
-               (inc generation))))))
+               (inc generation)))
+      )))
 
-; TODO: make toDisplay be able to specify individuals list instead of all???
+(evolve-tetris 5 20 [] [])
 
-(evolve-tetris 20 3 [] [1 2 3])
-
-;;; PLAY GAME WITH EXAMPLE INDIVIDUALS:
+;;; PLAY GAME WITH EXAMPLE GENERATIONS:
 
 ;; population-size: 20, generation: 1
 ;; best-individual: {:generation 1, :score 132, :part-of-seed (3 6 6 3 6 0 3 5 1 6 0 0 4 2 3 5 4 6 5 5 5 5 3 3 0 2 0 5 4 3 1 5 0 6 3 2 6 3 2 4 6 2 1 1 1 6 6 4 6 5 0 5 5 1 5 4 1 6 1 3 6 4 0 3 5 3 1 4 3 6 4 2 5 3 1 4 6 5 1 3 2 1 1 5 0 5 2 2 2 1 0 2 5 6 1 5 1 5 4 6), :weights {:numHoleTiles 1.421941002485248, :bumpiness -6.999830780392358, :height -6.262096531257532}}
-(let [ind {:state (get-board)
-           :score 132                                       ; 0, but gets 132 when playing
-           :seed [3 6 6 3 6 0 3 5 1 6 0 0 4 2 3 5 4 6 5 5 5 5 3 3 0 2 0 5 4 3 1 5 0 6 3 2 6 3 2 4 6 2 1 1 1 6 6 4 6 5 0 5 5 1 5 4 1 6 1 3 6 4 0 3 5 3 1 4 3 6 4 2 5 3 1 4 6 5 1 3 2 1 1 5 0 5 2 2 2 1 0 2 5 6 1 5 1 5 4 6]
-           :genome [1.421941002485248 -6.999830780392358 -6.262096531257532]}]
-  (play-game true ind))
+#_(let [ind {:state  (get-board)
+             :score  132                                    ; 0, but gets 132 when playing
+             :seed   [3 6 6 3 6 0 3 5 1 6 0 0 4 2 3 5 4 6 5 5 5 5 3 3 0 2 0 5 4 3 1 5 0 6 3 2 6 3 2 4 6 2 1 1 1 6 6 4 6 5 0 5 5 1 5 4 1 6 1 3 6 4 0 3 5 3 1 4 3 6 4 2 5 3 1 4 6 5 1 3 2 1 1 5 0 5 2 2 2 1 0 2 5 6 1 5 1 5 4 6]
+             :genome [1.421941002485248 -6.999830780392358 -6.262096531257532]}]
+    (play-game true ind))
 
 ;; population-size: 20, generation: 10
 ;; best-individual: {:generation 7, :score 440, :part-of-seed (0 4 5 6 2 0 3 0 0 1 0 0 6 5 4 6 6 0 3 6 6 0 6 1 5 1 2 5 4 5 5 6 3 0 5 3 1 2 5 1 1 0 5 0 2 4 3 3 4 4 1 1 2 4 3 3 5 2 1 2 1 1 4 5 6 5 5 1 1 3 1 6 2 1 0 5 5 2 6 3 0 0 1 0 3 3 2 0 0 0 3 2 4 6 3 0 5 4 5 1), :weights {:numHoleTiles -6.07038729982036, :bumpiness -3.105552508980165, :height -2.7903293323861824}}
-(let [ind {:state (get-board)                               ; intiially empty until play game
-            :score 440                                      ; 0, but gets 440 when playing
-            :seed [0 4 5 6 2 0 3 0 0 1 0 0 6 5 4 6 6 0 3 6 6 0 6 1 5 1 2 5 4 5 5 6 3 0 5 3 1 2 5 1 1 0 5 0 2 4 3 3 4 4 1 1 2 4 3 3 5 2 1 2 1 1 4 5 6 5 5 1 1 3 1 6 2 1 0 5 5 2 6 3 0 0 1 0 3 3 2 0 0 0 3 2 4 6 3 0 5 4 5 1]
-            :genome [-6.07038729982036 -3.105552508980165 -2.7903293323861824]}]
-  (play-game true ind))
+#_(let [ind {:state  (get-board)                            ; intiially empty until play game
+             :score  440                                    ; 0, but gets 440 when playing
+             :seed   [0 4 5 6 2 0 3 0 0 1 0 0 6 5 4 6 6 0 3 6 6 0 6 1 5 1 2 5 4 5 5 6 3 0 5 3 1 2 5 1 1 0 5 0 2 4 3 3 4 4 1 1 2 4 3 3 5 2 1 2 1 1 4 5 6 5 5 1 1 3 1 6 2 1 0 5 5 2 6 3 0 0 1 0 3 3 2 0 0 0 3 2 4 6 3 0 5 4 5 1]
+             :genome [-6.07038729982036 -3.105552508980165 -2.7903293323861824]}]
+    (play-game true ind))

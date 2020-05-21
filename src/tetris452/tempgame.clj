@@ -6,10 +6,22 @@
     (java.awt Canvas Font Graphics Color Toolkit))
   (:gen-class))
 
+;Some highly performing individuals
+;(def new-individual
+;  {:genome [-160.3566 400.766 -0.31006 -1.0003]})
+;(def new-individual
+;  {:genome [-150.3566 400.766 -0.31006 -1.8443]})
+;(def new-individual
+;  {:genome [-150.3566 200.766 -0.31006 -0.6043]})
+;(def new-individual
+;  {:genome [-150.3566 200.766 -0.31006 -0.6043]})
+
 (def get-seed (repeatedly #(rand-int 7)))
 
 (defn board-see [board]
   (println board))
+
+(defn abs [n] (max n (- n)))
 
 (defn pos-check [pos]
   (if (and (< pos 200) (> pos -1))
@@ -36,9 +48,40 @@
           (+ height-sum (- 20 height))
           (* height 0)
           (+ (* pos 0) (inc counter))
-          (inc counter)
-          )))))
+          (inc counter))))))
 
+(defn bumpiness [board]
+  (loop [height-sum 0
+         height     0
+         prev-height 0
+         pos        0
+         counter    0]
+    (if (>= counter 10)
+      height-sum
+      (cond
+        (and (pos-check pos)(= (nth board pos) "black"))
+        (recur
+          height-sum
+          (inc height)
+          prev-height
+          (+ pos 10)
+          counter)
+
+        (= counter 0)
+        (recur
+          height-sum
+          (* height 0)
+          (- 20 height)
+          (+ (* pos 0) (inc counter))
+          (inc counter))
+
+        :default
+        (recur
+          (+ height-sum (abs (- (- 20 height) prev-height)))
+          (* height 0)
+          (- 20 height)
+          (+ (* pos 0) (inc counter))
+          (inc counter))))))
 
 (defn cal-holes [board]
   (loop [counter 10
@@ -60,72 +103,73 @@
         num-removed (- (count board) (count new-board))]
     (/ num-removed 10)))
 
-(defn heuristic-sum [h1 h2 h3 individual]
+(defn heuristic-sum [h1 h2 h3 h4 individual]
   (let [weights (:genome individual)]
-    (+ (+ (* h1 (first weights))(* h2 (nth weights 1)))(- 200 (* h3 (nth weights 2))))))
-
-;;edit this
+    (+ (+
+         (+ (* h1 (first weights)) (* h2 (nth weights 1)))
+         (* h3 (nth weights 2)))
+       (* h4 (nth weights 3)))))
 
 (defn printoutstuff [results]
   (let [max (val (apply max-key val results))
         best (rand-nth (keys (into (hash-map) (filter #(>= (second %) max) results))))]
     (do
-      ;;(println "this is the result: " results)
-      ;;(println "This is the best move:" best)
       best)))
 
-;;does it choose down if they all have the same value?
-(defn calculate-move [ board block drop? individual]
-  (loop [tempBoard board
-         ;;test out printout stuff here
-         results {:left 0 :right 0 :up 0 :down 0}
-         moves '(:left :right :up :down)
-         counter 0
-         [num-removed new-board] (clear-lines board)
-         ]
+(defn drop-board [board block drop?]
+  (loop [current-board board
+         current-block block
+         condition drop?
+         counter 0]
+    (if (collides? current-board (:shape current-block))
+      (do
+        ;(println "Collision Detected")
+        ;;Return the board here that goes in the heuristics
+        ;; print out last board (board-see (update-board current-board current-block)))
+        (update-board current-board current-block))
+
+      (do
+        (let [newer-board (update-board current-board (transform current-board current-block condition))]
+          ;(board-see newer-board)
+          ;(println counter)
+          (recur
+            current-board
+            (transform current-board current-block condition)
+            condition
+            (inc counter)))))))
+
+(defn calculate-move [board block drop? individual]
+  (loop [results {:left 0 :right 0 :up 0 :down 0 :still 0}
+         moves '(:left :right :up :down :still)
+         counter 0]
     ;(println "This is the original board:")
     ;(println results)
     (reset! OFFSET [0 0])
     (reset! ROTATION nil)
-    (if (>= counter 4)
+    (if (>= counter 5)
       (do
         (reset! OFFSET [0 0])
         (reset! ROTATION nil)
-        (printoutstuff results)
-        )
+        ;Defaulted to :down when weights are tied
+        (printoutstuff results))
 
       (do
-        ;down is the default when they are tied
         (case (nth moves counter)
           :left (swap! OFFSET #(map + [-1 0] %))
           :right (swap! OFFSET #(map + [1 0] %))
           :up (reset! ROTATION :left)
           :down (reset! ROTATION :right)
+          :still (swap! OFFSET #(map + [0 0] %))
           )
-        ;(print "This is the current move" (nth moves counter) ". ")
-
-
-        ;(board-see tempBoard)
-        ;;(update board)
-        ;(board-see (update-board new-board (transform board block drop?)))
-
-
-        (let [t-board (update-board new-board (transform board block drop?))]
-          ;(assoc results (nth moves counter) (heuristic-sum (cal-holes t-board) (/ num-removed 10) (aggregate-height t-board) individual))
-          ;println "This is the sum "(heuristic-sum (cal-holes t-board)(/ num-removed 10) (aggregate-height t-board) individual))
-
-          (recur
-            board
-            (assoc results (nth moves counter) (heuristic-sum (cal-holes t-board) (/ num-removed 10) (aggregate-height t-board) individual))
-            moves
-            (inc counter)
-            [num-removed new-board]
-            ))
-        ))))
-
-
-
-
+        ;(println "This is the current move" (nth moves counter) ". ")
+        ;;What happens if the initial spawn collides? check transform
+        (let [current-block (if (collides? board (:shape (transform board block false))) block (transform board block false))]
+          (let [t-board (drop-board board current-block true)]
+            (recur
+              (assoc results (nth moves counter) (heuristic-sum (cal-holes t-board) (complete-lines t-board) (aggregate-height t-board) (bumpiness t-board) individual))
+              moves
+              (inc counter)
+              )))))))
 
 ;;;;Controls;;;;
 
@@ -134,13 +178,17 @@
 (defn rand-move []
   (rand-nth '(:left :left :left :left)))
 
-(defn finish-game [frame score board]
-  (doto frame
-    (.setVisible false)
-    (.dispose))
-  (println {:score score
-            :board board})
-  [score board])
+(defn finish-game
+  [score board] 
+  (println {:score score 
+            :board board}) 
+  [score board]) 
+
+(defn close-game [frame] 
+  (doto frame 
+    (.setVisible false) 
+    (.dispose)))
+
 (defn finish-game2 [ score board]
   (println {:score score
             :board board})
@@ -205,18 +253,6 @@
 
     (draw-text g Color/green (str "score: " score) 20 25)))
 
-(defn cal-holes [board]
-  (loop [counter 10
-         holes 0]
-    (if (>= counter (count board))                          ;; for any size board
-      holes
-      (recur
-        (inc counter)
-        (if (and (= (nth board counter) "black")
-                 (not (= (nth board (- counter 10)) "black")))
-          (inc holes)
-          holes)))))
-
 ;;Make this main method take in genome as a paramater, and then call a function that decides a move based on the genome and state of the board
 (defn play-game [toDisplay individual]
   (reset! WIDTH 300)
@@ -265,12 +301,13 @@
                            :right (swap! OFFSET #(map + [1 0] %))
                            :up (reset! ROTATION :left)
                            :down (reset! ROTATION :right)
+                           :still (swap! OFFSET #(map + [0 0] %))
                            )
 
                          (cond
                            (game-over? board)
 
-                           (finish-game frame score board)
+                             (do   (finish-game score board)   (close-game frame)) 
 
                            ;; (draw canvas (draw-game-over score))
 
@@ -312,18 +349,10 @@
            old-time (System/currentTimeMillis)]
       (reset! OFFSET [0 0])
       (reset! ROTATION nil)
-      (Thread/sleep 0)
-      ;;random move here for now but use the calculate-move function here later; is this where the random move should be?
-      (case (rand-move)
-        :left nil                                           ;(swap! OFFSET #(map + [-1 0] %))
-        :right nil                                          ;(swap! OFFSET #(map + [1 0] %))
-        :up (reset! ROTATION :left)
-        :down (reset! ROTATION :right)
-        )
-
+      (Thread/sleep 1)
 
       (let [cur-time (System/currentTimeMillis)
-            new-time (long (if (> (- cur-time old-time) 5) ;;changes game tick
+            new-time (long (if (> (- cur-time old-time) 100) ;;changes game tick
                              cur-time
                              old-time))
             drop? (> new-time old-time)
@@ -337,6 +366,7 @@
           :right (swap! OFFSET #(map + [1 0] %))
           :up (reset! ROTATION :left)
           :down (reset! ROTATION :right)
+          :still (swap! OFFSET #(map + [0 0] %))
           )
         (cond
           (game-over? board)
@@ -344,7 +374,6 @@
           ;; (draw canvas (draw-game-over score))
 
           (collides? board (:shape block))
-
           ;;recursion once a block is placed
           (recur
             (inc score)
