@@ -7,7 +7,7 @@
 ; For storing game state + string based display to repl
 (def empty-block 0)                                         ; Empty/Unoccupied cells = zeros
 (def active-block 1)                                        ; Active/Moving cells = 1s
-(def placed-block 2)                                        ; Filled/Occupied cells = 2s
+(def filled-block 2)                                        ; Filled/Occupied cells = 2s
 (def world-height 20)                                       ; row 0 is at top
 (def world-width 10)                                        ; world refers to the area tetris blocks can be in
 (def shape-spawn-pos [(- (/ world-width 2) 2) 0])
@@ -55,18 +55,19 @@
 
 (def get-seed (repeatedly #(rand-int 7)))
 
-(defn start-state
+(defn new-state
   "Makes a new-game state"
-  []
-  {:board        (make-board)
-   :score        0                                          ; score of game. starts at 0
-   ;:speed       100                                       ; how quickly before block will fall down 1
-   :cleared-rows 0                                          ; number of rows that have been cleared in game
-   :active-pos   [(rand-int (- world-width 3)) 0]           ; top-left coord of active tetris shape. randomly somewhere along the top row of world
-   :active-shape ((rand-nth (keys shapes)) shapes)})        ; shape is the current falling/active block
-;TODO: Set the active-shape to be:
-    ; a) 2 separate state-properties: fall-seq and active-ind, where active-ind is the index of the shape we are using from the seq
-    ; b) call to a .... however did in project
+  ([seed]
+   (assoc (new-state) :active-shape (next-shape 0 seed)))   ; shape is the current falling/active block
+  ([]
+   {:board        (make-board)
+    :score        0                                         ; score of game. starts at 0
+    :level        0
+    ;:speed       100                                       ; how quickly before block will fall down 1
+    :cleared-rows 0                                         ; number of rows that have been cleared in game
+    :active-pos   shape-spawn-pos                           ; top-left coord of active tetris shape. randomly somewhere along the top row of world
+    :active-ind   0                                         ; active-shape index (from the seed / seq of falling shapes)
+    :active-shape nil}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;   REPL/CMD-LINE VISUALIZATION + REPORTING   ;;
@@ -80,7 +81,7 @@
 ; TODO: Visualization - Quil visualization
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;   BOARD-RELATED CONVERSIONS   ;;
+;;   BOARD-RELATED CONVERSIONS + GAME CALCULATIONS   ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn read-cell
@@ -115,24 +116,21 @@
 ; (0,1) (1,1) (2,1)
 ; (0,2) (1,2) (2,2)
 ; (0,3) (1,3) (2,3)
-#_(read-cell 1 2 m) ; => 8
+#_(read-cell 1 2 m)                                         ; => 8
 #_(print (str-board m))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;   GAME RULES CALCULATIONS AND CHECKS   ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   SHAPE PLACEMENT - placing a block makes it a filled-block, so its position is a filled cell
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   BOARD CHECKS + GAME RULE TRANSFORMATIONS   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn cell-valid?
   "checks for collisions - Returns bool for if the cell at (r,c) is un-filled and in the 'board' bounds"
   [x y board]
   (and board (< -1 x world-width) (< -1 y world-height)     ; board exists (non-nil) and the cell is within the world-width and world-height
        (= empty-block (read-cell x y board))))              ; the cell is empty
-
-(defn state-valid?
-  "Returns bool for if the 'state' with the active-block placed is valid.
-  If not, return the original state"
-  [{:keys [board active-shape active-pos] :as state}]
-  (if (place-shape active-shape active-pos active-block board) true false))
 
 (defn calc-level
   "Calculates level from total number of `lines` cleared. Max level of 10
@@ -151,45 +149,6 @@
         result (* (base-score lines) (inc level))]
     result))
 
-(defn gameover?
-  "Returns if the 'board' triggers gameover, meaning filled-blocks reach the top row"
-  ([{:keys [board] :as state}] (gameover? board))
-  ([board] 
-   (not (empty? (for [block (first board) :when (= block filled-block)] block)))))
-
-(defn imbed-shape?
-  "Checks if the active-'shape' at the active-pos, '[ref-x ref-y]', in the 'board' is to be placed, meaning
-   if there are any active-blocks that touch / are adjacent to a filled-block"
-  ([active-shape [ref-x ref-y] board]
-   (imbed-shape? (abs-shape-coords ref-x ref-y active-shape) board))
-  ([active-cells board]
-  (let [valid-coords? (every? true? (map #(cell-valid? (first %1) (second %1) board) active-cells)) ; if all the active coordinates are on valid (on the board and not filled)
-        active-bottom-cells (into [] (for [[x y] active-cells :when (= y (dec world-height))] [x y])) ; active-cells/coords in bottom row
-        active-above-filled-cells (into [] (for [[x y] active-cells :when (= filled-block (read-cell x (inc y) board))] [x y])) ; active-coords (cells) that have a filled-block in the cell immediately below
-        ]
-    (or (not (empty? active-bottom-cells)) (not (empty? active-above-filled-cells))))))
-
-(defn shape-fits?
-  "Checks if the active shape will collide with anything in the current board
-  when the coords are translated, adding dx, dx to each of the shape's coords"
-  [shape-coords dx dy board]
-  (every? #(block-fits? % dx dy board) shape-coords))
-
-(defn get-drop-pos
-  "Get the future drop position of the given piece (at active-pos or [ref-x ref-y])"
-  [shape [ref-x ref-y] x y board]
-  (let [collide? (fn [cy] (not (shape-fits? (abs-shape-coords ref-x ref-y shape) x cy board)))
-        cy (first (filter collide? (iterate inc y)))]
-    (max y (dec cy))))
-
-; TODO??? dropped-shape-state/board function... maybe for consideration of how good a state looks, for Push (Clojush) to decide what move to make
-;         (so as not to only be able to consider the state fully when almost at bottom with almost no time before active-shape is placed) 
-;   => would go in 'BOARD TRANSFORMATIONS' section
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;   BOARD TRANSFORMATIONS   ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 (defn clear-rows
   "Returns the state with any filled rows cleared, number of cleared-rows,
   and updated score (if cleared rows)"
@@ -200,12 +159,12 @@
         updated-cleared-rows (+ num-rows-cleared cleared-rows)
         updated-score (+ score (score-lines num-rows-cleared level))
         updated-board (reduce conj (make-board num-rows-cleared) remaining-rows)]
+    (if (pos? num-rows-cleared) (println "\nCLEARED LINES!!!\n"))
     (assoc state
       :cleared-rows updated-cleared-rows
       :board updated-board
       :score updated-score
       :level (calc-level updated-cleared-rows))))
-
 
 (defn place-block
   "Returns updated 'board' with the 'block-type' placed at cell '(x,y)', or nil if invalid board"
@@ -258,14 +217,14 @@
         active-bottom-cells (filter #(= (dec world-height) (second %)) active-cells) ; active-cells/coords in bottom row
         active-above-filled-cells (filter #(= filled-block (read-cell (first %1) (inc (second %1)) board)) active-cells) ; active-coords (cells) that have a filled-block in the cell immediately below
         ]
-    (or (not (empty? active-bottom-cells)) (not (empty? active-above-filled-cells)))))
+    (or (seq active-bottom-cells) (seq active-above-filled-cells))))
 
 (defn gameover?
   "Returns if the 'board' triggers gameover, meaning filled-blocks reach the top row and/or
   the active-shape (a) intersects or (b) imbeds on filled-blocks when 'active-pos' is at the shape-spawn-pos / in the top row"
   [{:keys [board active-pos active-shape] :as state}]
   (or (and (= active-pos shape-spawn-pos) (imbed-shape? state)) ; active-shape immediately placed/intersects filled blocks
-      (not (empty? (filter #(= filled-block %) (first board)))))) ; filled blocks in top row
+      (seq (filter #(= filled-block %) (first board))))) ; filled blocks in top row
 
 (defn block-fits?
   "Checks if the given coordinates '(x,y)' fit after translation '(dx,dy)' on the 'board'"
@@ -305,57 +264,52 @@
   [matrix]
   (into [] (reverse (apply mapv #(into [] %&) matrix))))
 
-(defn block-fits?
-  "Checks if the given coordinates '(x,y)' fit after translation '(dx,dy)' on the 'board'"
-  [[x y] dx dy board]
-  (let [next-x (+ x dx)
-        next-y (+ y dy)]
-    (cell-valid? next-x next-y board)))
-
 (defn move-valid?
   "Checks if 'translation' of 'shape' positioned at 'pos' will be valid, so without colliding in the 'board'"
   [shape [ref-x ref-y] translation board]
   (case translation
-    (or :rotate-left :rl -2) (every? #(block-fits? % 0 0 board) (abs-shape-coords [ref-x ref-y] (rotate-ccw shape)))
-    (or :left -1) (every? #(block-fits? % -1 0 board) (abs-shape-coords [ref-x ref-y] shape))
-    (or :fall :down 0) (every? #(block-fits? % 0 1 board) (abs-shape-coords [ref-x ref-y] shape))
-    (or :right 1) (every? #(block-fits? % 1 0 board) (abs-shape-coords [ref-x ref-y] shape))
-    (or :rotate-right :rr 2) (every? #(block-fits? % 0 0 board) (abs-shape-coords [ref-x ref-y] (rotate-ccw shape)))))
+    (:rotate-left :rl -2) (every? #(block-fits? % 0 0 board) (abs-shape-coords [ref-x ref-y] (rotate-ccw shape)))
+    (:left -1) (every? #(block-fits? % -1 0 board) (abs-shape-coords [ref-x ref-y] shape))
+    (:fall :down 0) (every? #(block-fits? % 0 1 board) (abs-shape-coords [ref-x ref-y] shape))
+    (:right 1) (every? #(block-fits? % 1 0 board) (abs-shape-coords [ref-x ref-y] shape))
+    (:rotate-right :rr 2) (every? #(block-fits? % 0 0 board) (abs-shape-coords [ref-x ref-y] (rotate-ccw shape)))))
 
 (defn move-shape
   "Returns the 'state' with the active-shape moved in the 'direction'. If invalid, returns the original state"
   [state direction]
   (if (and (not (gameover? state)) (move-valid? (:active-shape state) (:active-pos state) direction (:board state)))
     (case direction
-      (or :left -1) (update-in state [:active-pos 0] dec)
-      (or :down 0) (update-in state [:active-pos 1] inc)
-      (or :right 1) (update-in state [:active-pos 0] inc)
-      (or :rotate-left :rl -2) (assoc state :active-shape (rotate-ccw (:active-shape state)))
-      (or :rotate-right :rr 2) (assoc state :active-shape (rotate-cw (:active-shape state))))
+      (:left -1) (update-in state [:active-pos 0] dec)
+      (:down 0) (update-in state [:active-pos 1] inc)
+      (:right 1) (update-in state [:active-pos 0] inc)
+      (:rotate-left :rl -2) (assoc state :active-shape (rotate-ccw (:active-shape state)))
+      (:rotate-right :rr 2) (assoc state :active-shape (rotate-cw (:active-shape state))))
     state))
 
 (defn move-state
   "Returns the transformed game state after the 'move'. If invalid, returns the original 'state'
    moves: {-1 = shift left, 0 = shift down/fall, 1 = shift right}"
   [state move seed]
-  (let [move-state (move-shape state move)]
-    (if (imbed-shape? move-state)
-      (assoc (place-shape move-state) :active-shape (next-shape (:active-ind (place-shape move-state)) seed))
-      move-state)))
+  (let [move-state (move-shape state move)
+        valid-state? (if (place-shape move-state) true false)]
+    (if valid-state?
+      (if (imbed-shape? move-state)
+        (assoc (place-shape move-state) :active-shape (next-shape (:active-ind (place-shape move-state)) seed))
+        move-state)
+      state)))
 
 (defn endgame
   "Returns the endgame state and reports info specified here"
   [end-state]
-  (do (print end-state)
-      end-state))
+  end-state)
 
 (defn display-board
-  "Returns state with updated 'board', with 'shape' placed at/relative to the 'active-pos' (coords: [x y]), or nil if invalid board"
   [{:keys [board active-pos active-shape]}]
   (place-blocks board (abs-shape-coords active-pos active-shape) active-block))
 
 (defn play-game
-  "Game loop for Tetris, updating the state with each move"
+  "Returns ending state of a tetris game played with 'seed' as the falling sequence.
+  Updates the state with each move and fall from time-elapse."
   [seed]
   (loop [old-time (System/currentTimeMillis)
          initial-state (new-state seed)
@@ -364,10 +318,11 @@
          ;board (:board (new-state))
          ;shape (next-shape shape-ind seed)
          ]
-    (Thread/sleep 2)
+    (Thread/sleep 10)
 
     ; NOTE: FOR TESTING + SHOWING GAME PROGRESS
-    (println "******************\nGAME BOARD:\n" (str-board (display-board initial-state)))
+    ;(println "******************\nGAME BOARD:")
+    ;(println (str-board (display-board initial-state)))
 
     (let [curr-time (System/currentTimeMillis)
           new-time (long (if (> (- curr-time old-time) 5)   ; changes game tick
@@ -375,6 +330,7 @@
                            old-time))
           fall? (> new-time old-time)
           state (if fall? (move-state initial-state :down seed) initial-state)
+          fell-gameover? (gameover? state)
 
           ; state-features = CALL FUNCTION THAT RETURNS VECTOR OF THESE FEATURE VALUES (ints and bools)
           ;result             (peek-stack                                    ; what's on top of the .. stack? ... being the other arg to this function
@@ -394,17 +350,21 @@
           move (- (rand-int 5) 2)
           moved-state (move-state state move seed)
           ]
-      (println "\tNEXT STATE:" (:board moved-state))
-      ;(if (gameover? moved-state)
-      (if (gameover? moved-state)
-        ; return the endgame state
-        (do (print "\n\nGAMEOVER\n\n")
-            (endgame moved-state))
+      (println "fall?:" fall? "\tmove:" move "\tmoved-board: " (:board moved-state))
 
-        (if (every? moved-state (keys (new-state)))
-          (recur                                            ; recur to next game-round/iteration
-            new-time
-            moved-state)
-          (print "FAILED. State value(s) ended up being nil"))))))
+      (if fell-gameover?
+        (do (println "GAME ENDED BEFORE MOVE WAS MADE")
+            (endgame state) ; return the endgame state, after fall
+            )
+        (if (gameover? moved-state)
+          (do (println "GAME ENDED AFTER MOVE WAS MADE")
+          (endgame moved-state) ; return the endgame state, after move
+          )
+          (if (seq (:board moved-state))
+            (recur                                            ; recur to next game-round/iteration
+              new-time
+              moved-state)
+            (println "FAILED. moved board ended up being nil/empty. STATE BEFORE MOVE:")
+            ))))))
 
 (play-game get-seed)
