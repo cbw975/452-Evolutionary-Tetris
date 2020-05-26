@@ -63,7 +63,7 @@
    {:board        (make-board)
     :score        0                                         ; score of game. starts at 0
     :level        0
-    ;:speed       100                                       ; how quickly before block will fall down 1
+    :pace         25                                        ; how quickly before block will fall down 1
     :cleared-rows 0                                         ; number of rows that have been cleared in game
     :active-pos   shape-spawn-pos                           ; top-left coord of active tetris shape. randomly somewhere along the top row of world
     :active-ind   0                                         ; active-shape index (from the seed / seq of falling shapes)
@@ -224,7 +224,7 @@
   the active-shape (a) intersects or (b) imbeds on filled-blocks when 'active-pos' is at the shape-spawn-pos / in the top row"
   [{:keys [board active-pos active-shape] :as state}]
   (or (and (= active-pos shape-spawn-pos) (imbed-shape? state)) ; active-shape immediately placed/intersects filled blocks
-      (seq (filter #(= filled-block %) (first board))))) ; filled blocks in top row
+      (seq (filter #(= filled-block %) (first board)))))    ; filled blocks in top row
 
 (defn block-fits?
   "Checks if the given coordinates '(x,y)' fit after translation '(dx,dy)' on the 'board'"
@@ -240,14 +240,77 @@
   (every? #(block-fits? % dx dy board) shape-coords))
 
 (defn get-drop-pos
-  "Get the future drop position of the given piece (at active-pos or [ref-x ref-y])"
-  [shape [ref-x ref-y] x y board]
-  (let [collide? (fn [cy] (not (shape-fits? (abs-shape-coords [ref-x ref-y] shape) x cy board)))
-        cy (first (filter collide? (iterate inc y)))]
-    (max y (dec cy))))
+  "Get the future drop position of the given shape (from active-pos or [ref-x ref-y])"
+  [shape [ref-x ref-y] dx dy board]
+  (let [collide? (fn [cy] (not (shape-fits? (abs-shape-coords [ref-x ref-y] shape) dx cy board)))
+        cy (first (filter collide? (iterate inc dy)))]
+    (max dy (dec cy))))
 
-; TODO??? dropped-shape-state/board function... maybe for consideration of how good a state looks, for Push (Clojush) to decide what move to make
-;         (so as not to only be able to consider the state fully when almost at bottom with almost no time before active-shape is placed)
+(defn get-drop-pos
+  "Get the future drop position of the given shape (from active-pos or [ref-x ref-y])"
+  [shape x y board]
+  (let [collide? (fn [cy] (not (shape-fits? (abs-shape-coords [x y] shape) 0 cy board)))
+        cy (first (filter collide? (iterate inc y)))]
+    [x (max y (dec cy))]))
+
+(defn get-drop-state
+  "Get the state if the active-shape were dropped. NOTE, places the shape, but does not set the next active-shape"
+  [{:keys [board score level cleared-rows active-pos active-ind active-shape] :as state}]
+  (let [[active-x active-y] active-pos]
+    (place-shape [board score level cleared-rows (get-drop-pos active-shape active-x active-y board) active-ind active-shape] filled-block)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   BOARD/STATE EVALUATION FEATURES   ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(def features [:aggregate-height :max-height :side-weighted-heights :num-holes :bumpiness])
+
+(defn abs [n] (max (- n) n))
+
+(defn transpose [matrix]
+  (into [] (for [row (apply map list matrix)] (into [] row))))
+
+(defn column-heights
+  "Returns the heights of the columns of 'board'"
+  [board]
+  (for [col (transpose board)] (- world-height (first (keep-indexed #(if (= %2 filled-block) %1) col)))))
+
+(defn get-aggregate-height
+  "Returns the aggregate height of 'board', or the sum of all column heights"
+  [{:keys [board]}]
+  (reduce + (column-heights board)))
+
+(defn get-max-height
+  "Returns max height, of the tallest column, of 'board', range [0,20] or [empty,full]"
+  [{:keys [board]}]
+  (apply max (column-heights board)))
+
+(defn get-side-weighted-heights
+  "Returns the bias towards side bounds. Averages the height of all columns, weighted by distance to closest side"
+  [{:keys [board]}]
+  (let [indices (range world-width)
+        firsts-weights (take (int (+ 0.5 (/ (count indices) 2.0))) indices)
+        lasts-weights (reverse (take (int (/ (count indices) 2.0)) indices))
+        weighted-indices (map inc (concat firsts-weights lasts-weights))
+        heights (column-heights board)]
+    (map #(* %1 %2) heights weighted-indices)))
+
+(defn get-num-holes
+  "Returns the number of holes in 'board'. A hole is an empty cell underneath a
+  filled cell or parts of 'board' that can't be directly filled from the top.
+  Note, some holes don't have to be surrounded by filled blocks on all sides."
+  [{:keys [board]}]
+  (reduce + (for [y (range (dec world-height))
+                  x (range world-width)]
+              (if (and (= filled-block (read-cell x y board)) (= empty-block (read-cell x (inc y) board)))
+                1
+                0))))
+
+(defn get-bumpiness
+  "Returns the bumpiess or the sum of the absolute height differences between adjacent columns"
+  [{:keys [board]}]
+  (reduce + (for [x (range (dec world-width))]
+              (abs (- (nth (column-heights board) x) (nth (column-heights board) (inc x)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;   MOVE TRANSFORMATIONS   ;;
@@ -325,7 +388,7 @@
     ;(println (str-board (display-board initial-state)))
 
     (let [curr-time (System/currentTimeMillis)
-          new-time (long (if (> (- curr-time old-time) 5)   ; changes game tick
+          new-time (long (if (> (- curr-time old-time) (:pace initial-state)) ; changes game tick
                            curr-time
                            old-time))
           fall? (> new-time old-time)
@@ -354,14 +417,14 @@
 
       (if fell-gameover?
         (do (println "GAME ENDED BEFORE MOVE WAS MADE")
-            (endgame state) ; return the endgame state, after fall
+            (endgame state)                                 ; return the endgame state, after fall
             )
         (if (gameover? moved-state)
           (do (println "GAME ENDED AFTER MOVE WAS MADE")
-          (endgame moved-state) ; return the endgame state, after move
-          )
+              (endgame moved-state)                         ; return the endgame state, after move
+              )
           (if (seq (:board moved-state))
-            (recur                                            ; recur to next game-round/iteration
+            (recur                                          ; recur to next game-round/iteration
               new-time
               moved-state)
             (println "FAILED. moved board ended up being nil/empty. STATE BEFORE MOVE:")
