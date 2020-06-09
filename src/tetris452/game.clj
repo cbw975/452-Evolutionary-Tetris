@@ -53,7 +53,14 @@
   ([] (make-row world-height (make-row)))                   ; empty rows up to world's height
   ([num-rows] (make-row num-rows (make-row))))
 
-(def get-seed (repeatedly #(rand-int 7)))
+(def get-inf-seed (repeatedly #(rand-int 7)))
+
+(defn make-seed [] (repeatedly 2000 #(rand-int 7)))
+
+(defn generate-seeds
+  "Returns a vector of 'num-games' sequences of random-ints in the range of [1,6]"
+  [num-games]
+  (make-row num-games (make-seed)))
 
 (defn new-state
   "Makes a new-game state"
@@ -153,13 +160,11 @@
   "Returns the state with any filled rows cleared, number of cleared-rows,
   and updated score (if cleared rows)"
   [{:keys [board score level cleared-rows] :as state}]
-  (let [; the board with the full rows removed
-        remaining-rows (into [] (for [row board :when (some #(= empty-block %) row)] (into [] row)))
+  (let [remaining-rows (into [] (for [row board :when (some #(= empty-block %) row)] (into [] row))) ; the board with the full rows removed
         num-rows-cleared (- (count board) (count remaining-rows))
         updated-cleared-rows (+ num-rows-cleared cleared-rows)
         updated-score (+ score (score-lines num-rows-cleared level))
         updated-board (reduce conj (make-board num-rows-cleared) remaining-rows)]
-    (if (pos? num-rows-cleared) (println "\nCLEARED LINES!!!\n"))
     (assoc state
       :cleared-rows updated-cleared-rows
       :board updated-board
@@ -241,13 +246,6 @@
 
 (defn get-drop-pos
   "Get the future drop position of the given shape (from active-pos or [ref-x ref-y])"
-  [shape [ref-x ref-y] dx dy board]
-  (let [collide? (fn [cy] (not (shape-fits? (abs-shape-coords [ref-x ref-y] shape) dx cy board)))
-        cy (first (filter collide? (iterate inc dy)))]
-    (max dy (dec cy))))
-
-(defn get-drop-pos
-  "Get the future drop position of the given shape (from active-pos or [ref-x ref-y])"
   [shape x y board]
   (let [collide? (fn [cy] (not (shape-fits? (abs-shape-coords [x y] shape) 0 cy board)))
         cy (first (filter collide? (iterate inc y)))]
@@ -263,17 +261,20 @@
 ;;   BOARD/STATE EVALUATION FEATURES   ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(def features [:aggregate-height :max-height :side-weighted-heights :num-holes :bumpiness])
+(def features [:aggregate-height :max-height :bumpiness :side-weighted-heights :num-holes])
 
 (defn abs [n] (max (- n) n))
 
-(defn transpose [matrix]
-  (into [] (for [row (apply map list matrix)] (into [] row))))
+(defn transpose
+  [matrix]
+  (when matrix (apply mapv vector matrix)))
 
 (defn column-heights
   "Returns the heights of the columns of 'board'"
   [board]
-  (for [col (transpose board)] (- world-height (first (keep-indexed #(if (= %2 filled-block) %1) col)))))
+  (for [col (transpose board)]
+    (try (- world-height (first (keep-indexed #(if (= %2 filled-block) %1) col))) ; ends as null when height is zero
+         (catch NullPointerException e 0))))
 
 (defn get-aggregate-height
   "Returns the aggregate height of 'board', or the sum of all column heights"
@@ -284,6 +285,12 @@
   "Returns max height, of the tallest column, of 'board', range [0,20] or [empty,full]"
   [{:keys [board]}]
   (apply max (column-heights board)))
+
+(defn get-bumpiness
+  "Returns the bumpiess or the sum of the absolute height differences between adjacent columns"
+  [{:keys [board]}]
+  (reduce + (for [x (range (dec world-width))]
+              (abs (- (nth (column-heights board) x) (nth (column-heights board) (inc x)))))))
 
 (defn get-side-weighted-heights
   "Returns the bias towards side bounds. Averages the height of all columns, weighted by distance to closest side"
@@ -305,12 +312,6 @@
               (if (and (= filled-block (read-cell x y board)) (= empty-block (read-cell x (inc y) board)))
                 1
                 0))))
-
-(defn get-bumpiness
-  "Returns the bumpiess or the sum of the absolute height differences between adjacent columns"
-  [{:keys [board]}]
-  (reduce + (for [x (range (dec world-width))]
-              (abs (- (nth (column-heights board) x) (nth (column-heights board) (inc x)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;   MOVE TRANSFORMATIONS   ;;
@@ -362,72 +363,20 @@
       state)))
 
 (defn endgame
-  "Returns the endgame state and reports info specified here"
+  "Returns the score at the end of the Tetris game"
   [end-state]
-  end-state)
+  (:score end-state))
 
 (defn display-board
   [{:keys [board active-pos active-shape]}]
   (place-blocks board (abs-shape-coords active-pos active-shape) active-block))
 
-(defn play-game
-  "Returns ending state of a tetris game played with 'seed' as the falling sequence.
-  Updates the state with each move and fall from time-elapse."
-  [seed]
-  (loop [old-time (System/currentTimeMillis)
-         initial-state (new-state seed)
-         ;score 0
-         ;shape-ind 0
-         ;board (:board (new-state))
-         ;shape (next-shape shape-ind seed)
-         ]
-    (Thread/sleep 10)
+;; PLAY-GAME MOVED TO pushevolve.clj
+;(defn play-game
+;  "Returns ending state of a tetris game played with 'seed' as the falling sequence.
+;  Updates the state with each move and fall from time-elapse."
+;  [seed]
+;  ..................
+;)
 
-    ; NOTE: FOR TESTING + SHOWING GAME PROGRESS
-    ;(println "******************\nGAME BOARD:")
-    ;(println (str-board (display-board initial-state)))
-
-    (let [curr-time (System/currentTimeMillis)
-          new-time (long (if (> (- curr-time old-time) (:pace initial-state)) ; changes game tick
-                           curr-time
-                           old-time))
-          fall? (> new-time old-time)
-          state (if fall? (move-state initial-state :down seed) initial-state)
-          fell-gameover? (gameover? state)
-
-          ; state-features = CALL FUNCTION THAT RETURNS VECTOR OF THESE FEATURE VALUES (ints and bools)
-          ;result             (peek-stack                                    ; what's on top of the .. stack? ... being the other arg to this function
-          ;                    (interpret-program                            ; for the state of the game, decide move
-          ;                     program
-          ;                     (assoc empty-push-state :input               ; input will be the values from the state feature functions
-          ;                            {:in1 (:in1 input)
-          ;                             :in2 (:in2 input)
-          ;                             :in3 (:in3 input)})
-          ;                     (:step-limit argmap))
-          ;                    :integer)
-          ;move               (if (= result :no-stack-item)
-          ;                     0
-          ;                     result )                                     ; TODO: not quite right. If result is less than -2, just use -2. if larger than 2, just use 2
-
-          ; NOTE: temporarily random move for now
-          move (- (rand-int 5) 2)
-          moved-state (move-state state move seed)
-          ]
-      (println "fall?:" fall? "\tmove:" move "\tmoved-board: " (:board moved-state))
-
-      (if fell-gameover?
-        (do (println "GAME ENDED BEFORE MOVE WAS MADE")
-            (endgame state)                                 ; return the endgame state, after fall
-            )
-        (if (gameover? moved-state)
-          (do (println "GAME ENDED AFTER MOVE WAS MADE")
-              (endgame moved-state)                         ; return the endgame state, after move
-              )
-          (if (seq (:board moved-state))
-            (recur                                          ; recur to next game-round/iteration
-              new-time
-              moved-state)
-            (println "FAILED. moved board ended up being nil/empty. STATE BEFORE MOVE:")
-            ))))))
-
-(play-game get-seed)
+;#_(play-game get-inf-seed)
