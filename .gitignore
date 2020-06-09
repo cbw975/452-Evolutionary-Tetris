@@ -12,3 +12,5 @@ pom.xml.asc
 /.nrepl-port
 .hgignore
 .hg/
+/.idea
+tetris452.iml
